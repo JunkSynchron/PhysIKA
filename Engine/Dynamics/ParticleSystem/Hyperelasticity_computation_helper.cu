@@ -310,7 +310,7 @@ namespace Physika
 				weight = 0.0;
 			}
 
-			arrayR[curParticleID][ne] = dt * dt* volume* volume* (
+			arrayR[curParticleID][ne] = (-1.0) * dt * dt* volume* volume* (
 				weight * PiolaKirchhoffMats[curParticleID] * deformGradGInverseMats[curParticleID]
 				+ weight * PiolaKirchhoffMats[j] * deformGradGInverseMats[j]);
 		}
@@ -329,7 +329,7 @@ namespace Physika
 		// compute mat D
 		Matrix matDiag = mass * Matrix::identityMatrix();
 		for (int ne = 1; ne < size_i; ne++) {
-			matDiag += arrayR[curParticleID][ne];
+			matDiag += (-1.0)* arrayR[curParticleID][ne];
 		}
 		Matrix matDiagInverse = Matrix(0.0);
 		GInverseMat(matDiag, matDiagInverse);

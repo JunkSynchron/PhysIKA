@@ -41,7 +41,7 @@ void CreateScene()
 	SceneGraph& scene = SceneGraph::getInstance();
 
 	std::shared_ptr<StaticBoundary<DataType3f>> root = scene.createNewScene<StaticBoundary<DataType3f>>();
-	root->loadCube(Vector3f(0), Vector3f(1), 0.005, true);
+	root->loadCube(Vector3f(0), Vector3f(1.0), 0.005, true);
 
 	std::shared_ptr<ParticleElasticBody<DataType3f>> child3 = std::make_shared<ParticleElasticBody<DataType3f>>();
 	root->addParticleSystem(child3);
@@ -49,7 +49,8 @@ void CreateScene()
 	child3->setMass(1.0);
   	child3->loadParticles("../Media/bunny/bunny_points.obj");
   	child3->loadSurface("../Media/bunny/bunny_mesh.obj");
-	child3->translate(Vector3f(0.3, 0.2, 0.5));
+	child3->scale(0.7);
+	child3->translate(Vector3f(0.25, 0.2, 0.5));
 	child3->setVisible(false);
 	auto hyper_test = std::make_shared<HyperelasticityModule_test<DataType3f>>();
 	child3->setElasticitySolver(hyper_test);
@@ -63,13 +64,25 @@ void CreateScene()
 	child4->setMass(1.0);
 	child4->loadParticles("../Media/bunny/bunny_points.obj");
 	child4->loadSurface("../Media/bunny/bunny_mesh.obj");
-	child4->translate(Vector3f(0.7, 0.2, 0.5));
+	child4->scale(0.7);
+	child4->translate(Vector3f(0.5, 0.2, 0.5));
 	child4->setVisible(false);
 	auto hyper = std::make_shared<HyperelasticityModule<DataType3f>>();
 	hyper->setEnergyFunction(HyperelasticityModule<DataType3f>::Quadratic);
 	child4->setElasticitySolver(hyper);
 	child4->getSurfaceRender()->setColor(Vector3f(0, 0, 1));
 	child4->getElasticitySolver()->setIterationNumber(10);
+
+	std::shared_ptr<ParticleElasticBody<DataType3f>> child5 = std::make_shared<ParticleElasticBody<DataType3f>>();
+	root->addParticleSystem(child5);
+	child5->getRenderModule()->setColor(Vector3f(0, 1, 1));
+	child5->setMass(1.0);
+	child5->loadParticles("../Media/bunny/bunny_points.obj");
+	child5->loadSurface("../Media/bunny/bunny_mesh.obj");
+	child5->scale(0.7);
+	child5->translate(Vector3f(0.75, 0.2, 0.5));
+	child5->setVisible(false);
+	child5->getSurfaceRender()->setColor(Vector3f(1,0,0));
 }
 
 

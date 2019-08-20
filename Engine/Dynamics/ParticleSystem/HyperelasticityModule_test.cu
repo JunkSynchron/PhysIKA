@@ -297,7 +297,6 @@ namespace Physika
 
 		// find out i-th particle's all neighbors and compute diagonal component D & remainder sparse matrix R
 		// arrayR[i][0] is no definition, i-th particle's neighbors are stored in arrayR[i][1:]
-		// we stored -R
 		DeviceArray<DeviceArray<Matrix>> arrayR(numParticles);
 			//allocate mamery for arrayR
 
@@ -364,7 +363,7 @@ namespace Physika
 			cuSynchronize();
 
 			iterCount++;
-			if (iterCount > 12) { convergeFlag = true; }
+			if (iterCount > 15) { convergeFlag = true; }
 		}
 
 		test_HM_UpdatePosition_Velocity << <pDims, BLOCK_SIZE >> > (
