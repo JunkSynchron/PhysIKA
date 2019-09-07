@@ -25,6 +25,10 @@ namespace Physika
 
 		COMM_FUNC int size() { return m_index.size(); }
 
+		COMM_FUNC int getElementsSize() {
+			return m_elements.size();
+		}
+
 		GPU_FUNC int getNeighborSize(int i)
 		{ 
 			if (!isLimited())

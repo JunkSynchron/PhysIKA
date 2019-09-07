@@ -57,7 +57,7 @@ void CreateScene()
 	child3->getSurfaceRender()->setColor(Vector3f(1, 1, 0));
 	child3->getElasticitySolver()->setIterationNumber(10);
 
-
+	/*
 	std::shared_ptr<ParticleElasticBody<DataType3f>> child4 = std::make_shared<ParticleElasticBody<DataType3f>>();
 	root->addParticleSystem(child4);
 	child4->getRenderModule()->setColor(Vector3f(0, 1, 1));
@@ -70,9 +70,11 @@ void CreateScene()
 	auto hyper = std::make_shared<HyperelasticityModule<DataType3f>>();
 	hyper->setEnergyFunction(HyperelasticityModule<DataType3f>::Quadratic);
 	child4->setElasticitySolver(hyper);
-	child4->getSurfaceRender()->setColor(Vector3f(0, 0, 1));
+	child4->getSurfaceRender()->setColor(Vector3f(0, 1, 0.5));
 	child4->getElasticitySolver()->setIterationNumber(10);
+	*/
 
+	/*
 	std::shared_ptr<ParticleElasticBody<DataType3f>> child5 = std::make_shared<ParticleElasticBody<DataType3f>>();
 	root->addParticleSystem(child5);
 	child5->getRenderModule()->setColor(Vector3f(0, 1, 1));
@@ -83,6 +85,7 @@ void CreateScene()
 	child5->translate(Vector3f(0.75, 0.2, 0.5));
 	child5->setVisible(false);
 	child5->getSurfaceRender()->setColor(Vector3f(1,0,0));
+	*/
 }
 
 

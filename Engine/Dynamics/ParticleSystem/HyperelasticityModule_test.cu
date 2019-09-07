@@ -4,6 +4,9 @@
 #include "Core/Algorithm/MatrixFunc.h"
 #include "Kernel.h"
 
+#include "Framework/Framework/Log.h"
+#include "Core/Utility/Function1Pt.h"
+
 #include "Hyperelasticity_computation_helper.cu"
 
 namespace Physika
@@ -235,17 +238,15 @@ namespace Physika
 	}
 	***************************************************************************************/
 
-	template <typename Real, typename Coord>
-	__global__ void test_HM_UpdatePosition_Velocity(
-		DeviceArray<Coord>& position,
-		DeviceArray<Coord>& velocity,
-		DeviceArray<Coord>& y_next,
-		Real dt)
+	template <typename Coord>
+	__global__ void test_HM_UpdatePosition(
+		DeviceArray<Coord> position,
+		DeviceArray<Coord> y_next
+		)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= position.size()) return;
 
-		velocity[pId] = (y_next[pId] - position[pId]) / dt;
 		position[pId] = y_next[pId];
 	}
 
@@ -267,6 +268,7 @@ namespace Physika
 
 		int numParticles = num;
 
+		Log::sendMessage(Log::User, "solver start!!!");
 
 		/****************************************************************************************************/
 		//-test: compute the g-inverse deformation tensor & Piola-Kirchhoff tensor
@@ -275,6 +277,21 @@ namespace Physika
 		DeviceArray<Matrix> GInverseMatrices(numParticles);
 		// all the first Piola-Kirchhoff tensors
 		DeviceArray<Matrix> FirstPiolaKirchhoffMatrices(numParticles);
+
+
+		// cuda test function
+		/***************************************************
+		HM_cuda_test_function << <pDims, BLOCK_SIZE >> >(
+			this->m_position.getValue(),
+			this->m_restShape.getValue(),
+			this->m_horizon.getValue(),
+			this->m_distance.getValue(),
+			this->m_mu.getValue(),
+			this->m_lambda.getValue(),
+			GInverseMatrices,
+			FirstPiolaKirchhoffMatrices);
+		cuSynchronize();
+		*/
 
 		get_GInverseOfF_PiolaKirchhoff << <pDims, BLOCK_SIZE >> >(
 			this->m_position.getValue(),
@@ -296,25 +313,20 @@ namespace Physika
 		// compute constants of the linear equations
 
 		// find out i-th particle's all neighbors and compute diagonal component D & remainder sparse matrix R
-		// arrayR[i][0] is no definition, i-th particle's neighbors are stored in arrayR[i][1:]
-		DeviceArray<DeviceArray<Matrix>> arrayR(numParticles);
-			//allocate mamery for arrayR
 
 		// find size_i: number of neighbors of i-th particle
-		DeviceArray<int> neighborNums(numParticles);
-		findNieghborNums << <pDims, BLOCK_SIZE >> >(
-			this->m_restShape.getValue(),
-			neighborNums);
-		cuSynchronize();
 
-		// allocate memory for arrayR
-		for (int i = 0; i < numParticles; ++i) {
-			arrayR[i].resize(neighborNums[i]);
-		}
+
+		DeviceArray<int>& arrayRIndex = this->m_restShape.getValue().getIndex();
+		int arrayRSize = this->m_restShape.getValue().getElementsSize();
+	
+		// allocate memory for arrayR, use 1-dim array store 2-dim sparse matrix
+		DeviceArray<Matrix> arrayR(arrayRSize);
 
 		// we stored inverse of mat D
 		DeviceArray<Matrix> arrayDiagInverse(numParticles);
 		DeviceArray<Coord> array_b(numParticles);
+
 
 		getJacobiMethod_D_R_b_constants << <pDims, BLOCK_SIZE >> >(
 			this->m_position.getValue(),
@@ -324,15 +336,72 @@ namespace Physika
 			this->m_horizon.getValue(),
 			mass,
 			volume,
-			this->getParent()->getDt(),
+			this->getParent()->getDt() / this->getIterationNumber(),
 
 			GInverseMatrices,
 			FirstPiolaKirchhoffMatrices,
 			arrayR,
+			arrayRIndex,
 			arrayDiagInverse,
 			array_b); 
 		cuSynchronize();
- 
+
+		// check whether there be NaN error
+		/********************************************************
+		bool exitNaN_F = false;
+		bool exitNaN_Piola = false;
+		bool exitNaN_arrayDiag = false;
+		bool exitNaN_array_b = false;
+		bool exitNaN_arrayR = false;
+		HostArray<Matrix> tmpMats(numParticles);
+		Function1Pt::copy(tmpMats, GInverseMatrices);
+		for (int i = 0; i < numParticles; ++i) {
+			if (isExitNaN_mat3f(tmpMats[i])) {
+				exitNaN_F = true;
+				break;
+			}
+		}
+		tmpMats.reset();
+		Function1Pt::copy(tmpMats, FirstPiolaKirchhoffMatrices);
+		for (int i = 0; i < numParticles; ++i) {
+			if (isExitNaN_mat3f(tmpMats[i])) {
+				exitNaN_Piola = true;
+				break;
+			}
+		}
+		tmpMats.reset();
+		Function1Pt::copy(tmpMats, arrayDiagInverse);
+		for (int i = 0; i < numParticles; ++i) {
+			if (isExitNaN_mat3f(tmpMats[i])) {
+				exitNaN_arrayDiag = true;
+				break;
+			}
+		}
+		tmpMats.release();
+
+		HostArray<Coord> tmpVecs(numParticles);
+		Function1Pt::copy(tmpVecs, array_b);
+		for (int i = 0; i < numParticles; ++i) {
+			if (isExitNaN_vec3f(tmpVecs[i])) {
+				exitNaN_array_b = true;
+				break;
+			}
+		}
+		tmpVecs.release();
+
+		tmpMats.resize(arrayRSize);
+		Function1Pt::copy(tmpMats, arrayR);
+		for (int i = 0; i < arrayRSize; ++i) {
+			if (isExitNaN_mat3f(tmpMats[i])) {
+				exitNaN_arrayR = true;
+				break;
+			}
+		}
+		tmpMats.release();
+		Log::sendMessage(Log::User, std::to_string(exitNaN_F&&exitNaN_Piola&&exitNaN_arrayDiag&&exitNaN_array_b&&exitNaN_arrayR));
+		*/
+
+
 		// release no use array
 		GInverseMatrices.release();
 		FirstPiolaKirchhoffMatrices.release();
@@ -342,8 +411,7 @@ namespace Physika
 		DeviceArray<Coord> y_pre(numParticles);
 		DeviceArray<Coord> y_next(numParticles);
 
-		arrayCopy << <pDims, BLOCK_SIZE >> >(this->m_position.getValue(), y_pre);
-		cuSynchronize();
+		Function1Pt::copy(y_pre, this->m_position.getValue());
 
 		// do Jacobi method Loop
 		bool convergeFlag = false; // converge or not
@@ -352,6 +420,7 @@ namespace Physika
 		while (!convergeFlag) {
 			JacobiStep << <pDims, BLOCK_SIZE >> > (
 				arrayR,
+				arrayRIndex,
 				arrayDiagInverse,
 				array_b,
 				this->m_restShape.getValue(),
@@ -359,19 +428,71 @@ namespace Physika
 				y_next);
 			cuSynchronize();
 
-			arrayCopy << <pDims, BLOCK_SIZE >> >(y_next, y_pre);
-			cuSynchronize();
+			if (true) {
+				DeviceArray<Real> deltaNorm_device(numParticles);
+				computeDelta << <pDims, BLOCK_SIZE >> >(y_next, y_pre, deltaNorm_device);
+				cuSynchronize();
+
+				HostArray<Real> deltaNorm_host(numParticles);
+
+				Function1Pt::copy(deltaNorm_host, deltaNorm_device);
+
+				Real delta_max = 0.0;
+				Real delta_average = 0.0;
+				for (int i = 0; i < numParticles; ++i) {
+					if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
+					delta_average += deltaNorm_host[i];
+				}
+				delta_average = delta_average / numParticles;
+
+				if (delta_average < EPSILON) { 
+					convergeFlag = true; 
+					Log::sendMessage(Log::User, "iter_count: " + std::to_string(iterCount));
+					Log::sendMessage(Log::User, "y_delta_max: " + std::to_string(delta_max));
+
+
+					computeDelta << <pDims, BLOCK_SIZE >> >(y_next, this->m_position.getValue(), deltaNorm_device);
+					cuSynchronize();
+					Function1Pt::copy(deltaNorm_host, deltaNorm_device);
+					delta_max = 0.0;
+					delta_average = 0.0;
+					for (int i = 0; i < numParticles; ++i) {
+						if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
+						delta_average += deltaNorm_host[i];
+					}
+					delta_average = delta_average / numParticles;
+
+					Log::sendMessage(Log::User, "pos_delta_max: " + std::to_string(delta_max));
+					Log::sendMessage(Log::User, "pos_delta_ave: " + std::to_string(delta_average));
+				}
+
+				deltaNorm_device.release();
+				deltaNorm_host.release();
+
+			}
+
+			Function1Pt::copy(y_pre, y_next);
 
 			iterCount++;
-			if (iterCount > 15) { convergeFlag = true; }
+			if (iterCount > 200) { 
+				convergeFlag = true;
+				Log::sendMessage(Log::User, "iter_count: " + std::to_string(iterCount) + "+++");
+			}
 		}
 
-		test_HM_UpdatePosition_Velocity << <pDims, BLOCK_SIZE >> > (
+		arrayR.release();
+		array_b.release();
+		arrayDiagInverse.release();
+
+		test_HM_UpdatePosition << <pDims, BLOCK_SIZE >> > (
 			this->m_position.getValue(),
-			this->m_velocity.getValue(),
-			y_next,
-			this->getParent()->getDt() );
+			y_next
+			);
 		cuSynchronize();
+
+		y_pre.release();
+		y_next.release();
+
 	}
 
 

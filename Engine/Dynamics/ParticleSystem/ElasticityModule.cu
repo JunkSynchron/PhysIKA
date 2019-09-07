@@ -412,7 +412,7 @@ namespace Physika
 
 			itor++;
 		}
-
+		Log::sendMessage(Log::User, "------------------------one frame-----------------------------------");
 		this->updateVelocity();
 	}
 

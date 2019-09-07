@@ -11,8 +11,8 @@ namespace Physika
 {
 	template <typename NPair>
 	__global__ void findNieghborNums(
-		NeighborList<NPair>& restShapes,
-		DeviceArray<int>& neighborNums)
+		NeighborList<NPair> restShapes,
+		DeviceArray<int> neighborNums)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= neighborNums.size()) return;
@@ -31,9 +31,11 @@ namespace Physika
 		DeviceArray<Coord>& position,
 		NeighborList<NPair>& restShapes,
 		Real horizon,
-		Matrix& resultMatrix)
+		Matrix* pResultMatrix)
 	{
-		
+
+		Matrix& resultMatrix = *pResultMatrix;
+
 		resultMatrix = Matrix(0.0f);
 
 		CorrectedKernel<Real> g_weightKernel;
@@ -76,6 +78,7 @@ namespace Physika
 		}
 
 		resultMatrix = deform_i;
+		*pResultMatrix = resultMatrix;
 
 	}
 
@@ -87,14 +90,17 @@ namespace Physika
 	// matrix A are 3x3
 	template <typename Matrix>
 	GPU_FUNC void getSVDmatrix(
-		const Matrix& A,
-		Matrix& U,
-		Matrix& S,
-		Matrix& V) 
+		const Matrix A,
+		Matrix* pMatU,
+		Matrix* pMatS,
+		Matrix* pMatV) 
 	{
 		typedef typename Matrix::VarType Real;
 		typedef typename Vector<Real, 3> Coord;
 
+		Matrix& U = *pMatU;
+		Matrix& S = *pMatS;
+		Matrix& V = *pMatV;
 
 		int rowA = A.rows();
 		int colA = A.cols();
@@ -104,9 +110,9 @@ namespace Physika
 		V = Matrix::identityMatrix();
 
 		// set the tolerance
-		Real TOL = 1e-8;
+		Real TOL = 1e-5;
 		// current tolerance
-		Real converge = TOL + 1;
+		Real converge = TOL + 1.0;
 
 
 		// Jacobi Rotation Loop
@@ -130,15 +136,18 @@ namespace Physika
 					}
 
 					// find current tolerance
+					if (coeGamma==0.0 || coeAlpha==0.0 || coeAlpha==0.0) { continue; }
 					converge = max(converge, abs(coeGamma)/sqrt(coeAlpha*coeBeta));
 
 					// compute Jacobi Rotation
 					// take care Gamma may be zero
-					Real coeZeta, coeTan;
+					Real coeZeta, coeTan=0.0;
 					if (converge > TOL) {
 						coeZeta = (coeBeta - coeAlpha) / (2 * coeGamma);
-						int signOfZeta = (Real(0) < coeZeta) - (coeZeta < Real(0));
-						coeTan = signOfZeta / (abs(coeZeta) + sqrt(1.0 + coeZeta * coeZeta));
+						int signOfZeta = (Real(0.0) < coeZeta) - (coeZeta < Real(0.0));
+						if (signOfZeta == 0) { signOfZeta = 1; }
+						assert(signOfZeta==1 || signOfZeta==-1);
+						coeTan = signOfZeta / ( abs(coeZeta) + sqrt(1.0 + coeZeta * coeZeta));
 					}
 					else {
 						coeTan = 0.0;
@@ -150,14 +159,14 @@ namespace Physika
 					// update columns i and j of U
 					for (int k = 0; k <= colA - 1; ++k) {
 						Real tmp = U(k, i);
-						U(k, i) = coeCos * coeTan - coeSin * U(k, j);
-						U(k, j) = coeSin * coeTan + coeCos * U(k, j);
+						U(k, i) = coeCos * tmp - coeSin * U(k, j);
+						U(k, j) = coeSin * tmp + coeCos * U(k, j);
 					}
 					//update columns of V
 					for (int k = 0; k <= colA - 1; ++k) {
 						Real tmp = V(k, i);
-						V(k, i) = coeCos * coeTan - coeSin * V(k, j);
-						V(k, j) = coeSin * coeTan + coeCos * V(k, j);
+						V(k, i) = coeCos * tmp - coeSin * V(k, j);
+						V(k, j) = coeSin * tmp + coeCos * V(k, j);
 					}
 
 				}
@@ -168,32 +177,42 @@ namespace Physika
 		Coord singValues = Coord(1.0);
 		for (int j = 0; j <= colA - 1; ++j) {
 			singValues[j] = U.col(j).norm();
-			for (int i = 0; i <= rowA - 1; ++i) {
-				U(i, j) = U(i, j) / singValues[j];
+			if (abs(singValues[j]) > 0.0) {
+				for (int i = 0; i <= rowA - 1; ++i) {
+					U(i, j) = U(i, j) / singValues[j];
+				}
 			}
+			else singValues[j] = 0.0;
 		}
 
 		// get matrix S
-		for (int i = 0; i < rowA; ++i) {
+		for (int i = 0; i <= rowA - 1; ++i) {
 			S(i, i) = singValues[i];
 		}
+
+		*pMatU = U;
+		*pMatS = S;
+		*pMatV = V;
 	}
 
 	template <typename Matrix>
 	GPU_FUNC void getGInverseMatrix_SVD(
-		Matrix& U,
-		Matrix& S,
-		Matrix& V,
-		Matrix& resultMat)
+		Matrix U,
+		Matrix S,
+		Matrix V,
+		Matrix* pResultMat)
 	{
 		typedef typename Matrix::VarType Real;
 		typedef typename Vector<Real, 3> Coord;
+
+		Matrix& resultMat = *pResultMat;
 
 		int colS = S.cols();
 
 		// inverse matrix S
 		for (int j = 0; j <= colS - 1; ++j) {
 			if (S(j, j) > EPSILON) { S(j, j) = 1.0 / S(j, j); }
+			else { S(j, j) = 0.0; }
 		}
 
 		//transpose mat U
@@ -201,33 +220,69 @@ namespace Physika
 
 		// A = U*S*V^T;  so that A^-1 = V * S^-1 * U^T
 		resultMat = V * S * U;
+
+		*pResultMat = resultMat;
 	}
 
 
 
 	template <typename Matrix>
 	GPU_FUNC void GInverseMat(
-		Matrix& A,
-		Matrix& resultMat) 
+		Matrix A,
+		Matrix* pResultMat) 
 	{
+		Matrix& resultMat = *pResultMat;
+
 		Matrix matU = Matrix(0.0), matV = Matrix(0.0), matS = Matrix(0.0);
-		getSVDmatrix(A, matU, matS, matV);
-		getGInverseMatrix_SVD(matU, matS, matV, resultMat);
+		getSVDmatrix(A, &matU, &matS, &matV);
+		getGInverseMatrix_SVD(matU, matS, matV, &resultMat);
+
+		*pResultMat = resultMat;
 	}
 
+
+	// cuda test function
+	template <typename Real, typename Coord, typename Matrix, typename NPair>
+	__global__ void HM_cuda_test_function(
+		DeviceArray<Coord> position,
+		NeighborList<NPair> restShapes,
+		Real horizon,
+		Real distance,
+		Real mu,
+		Real lambda,
+		DeviceArray<Matrix> resultGInverseMatrices,
+		DeviceArray<Matrix> firstPiolaKirchhoffMatrices)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+		
+		Real total_weight = Real(0);
+		Matrix deform_i = Matrix(0.0f);
+		getDeformationGradient(
+			pId,
+			position,
+			restShapes,
+			horizon,
+			&deform_i);
+
+		// deformation gradients mat SVD
+		Matrix matU = Matrix(0.0), matV = Matrix(0.0), matS = Matrix(0.0);
+		//getSVDmatrix(deform_i, &matU, &matS, &matV);
+	}
 
 	//-test: to find generalized inverse of all deformation gradient matrices
 	// these deformation gradients are mat3x3, may be singular
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
 	__global__ void get_GInverseOfF_PiolaKirchhoff(
-		DeviceArray<Coord>& position,
-		NeighborList<NPair>& restShapes,
+		DeviceArray<Coord> position,
+		NeighborList<NPair> restShapes,
 		Real horizon,
 		Real distance,
 		Real mu,
 		Real lambda,
-		DeviceArray<Matrix>& resultGInverseMatrices,
-		DeviceArray<Matrix>& firstPiolaKirchhoffMatrices)
+		DeviceArray<Matrix> resultGInverseMatrices,
+		DeviceArray<Matrix> firstPiolaKirchhoffMatrices)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= position.size()) return;
@@ -239,46 +294,51 @@ namespace Physika
 			position,
 			restShapes,
 			horizon,
-			deform_i);
+			&deform_i);
 		
 		// deformation gradients mat SVD
 		Matrix matU = Matrix(0.0), matV = Matrix(0.0), matS = Matrix(0.0);
-		getSVDmatrix(deform_i, matU, matS, matV);
+		getSVDmatrix(deform_i, &matU, &matS, &matV);
 
 		// get g-inverse of deformaition gradients F
 		Matrix matInverseF = Matrix(0.0);
-		getGInverseMatrix_SVD(matU, matS, matV, matInverseF);
+		getGInverseMatrix_SVD(matU, matS, matV, &matInverseF);
+		for (int i = 0; i <= matInverseF.rows() - 1; ++i) {
+			if (matInverseF(i, i) == 0.0) { matInverseF(i, i) = 1.0; }
+		}
 		resultGInverseMatrices[pId] = matInverseF;
 
 		// find strain tensor E = 1/2(F^T * F - I)
 		Matrix strainMat = 0.5*(deform_i.transpose() * deform_i - Matrix::identityMatrix());
-		// find first Piola-Kirchhoff matix
+		// find first Piola-Kirchhoff matix; StVK material
 		firstPiolaKirchhoffMatrices[pId] = deform_i * (2 * mu*strainMat + lambda * strainMat.trace() * Matrix::identityMatrix());
 	}
 
 
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
 	__global__ void getJacobiMethod_D_R_b_constants(
-		DeviceArray<Coord>& position,
-		NeighborList<NPair>& restShapes,
-		DeviceArray<Coord>& velocity,
+		DeviceArray<Coord> position,
+		NeighborList<NPair> restShapes,
+		DeviceArray<Coord> velocity,
 
 		Real horizon,
 		Real mass,
 		Real volume,
 		Real dt,
 
-		DeviceArray<Matrix>& deformGradGInverseMats,
-		DeviceArray<Matrix>& PiolaKirchhoffMats,
+		DeviceArray<Matrix> deformGradGInverseMats,
+		DeviceArray<Matrix> PiolaKirchhoffMats,
 
-		DeviceArray< DeviceArray<Matrix> >& arrayR,
-		DeviceArray<Matrix>& arrayDiagInverse,
-		DeviceArray<Coord>& array_b)
+		DeviceArray< Matrix > arrayR,
+		DeviceArray<int> arrayRIndex,
+		DeviceArray<Matrix> arrayDiagInverse,
+		DeviceArray<Coord> array_b)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= position.size()) return;
 
 		int curParticleID = pId;
+
 
 		CorrectedKernel<Real> g_weightKernel;
 
@@ -310,7 +370,7 @@ namespace Physika
 				weight = 0.0;
 			}
 
-			arrayR[curParticleID][ne] = (-1.0) * dt * dt* volume* volume* (
+			arrayR[ arrayRIndex[curParticleID]+ ne] = (-1.0) * dt * dt* volume* volume* (
 				weight * PiolaKirchhoffMats[curParticleID] * deformGradGInverseMats[curParticleID]
 				+ weight * PiolaKirchhoffMats[j] * deformGradGInverseMats[j]);
 		}
@@ -318,7 +378,7 @@ namespace Physika
 		if (total_weight > EPSILON)
 		{
 			for (int ne = 1; ne < size_i; ne++) {
-				arrayR[curParticleID][ne] *= 1.0f / (total_weight);
+				arrayR[arrayRIndex[curParticleID] + ne] *= 1.0f / (total_weight);
 			}
 		}
 		else
@@ -329,10 +389,10 @@ namespace Physika
 		// compute mat D
 		Matrix matDiag = mass * Matrix::identityMatrix();
 		for (int ne = 1; ne < size_i; ne++) {
-			matDiag += (-1.0)* arrayR[curParticleID][ne];
+			matDiag += (-1.0)* arrayR[arrayRIndex[curParticleID] + ne];
 		}
 		Matrix matDiagInverse = Matrix(0.0);
-		GInverseMat(matDiag, matDiagInverse);
+		GInverseMat(matDiag, &matDiagInverse);
 		arrayDiagInverse[curParticleID] = matDiagInverse;
 
 		array_b[curParticleID] = mass * (position[curParticleID] + dt * velocity[curParticleID]);
@@ -342,14 +402,15 @@ namespace Physika
 	// one iteration of Jacobi method 
 	template <typename Coord, typename Matrix, typename NPair>
 	__global__ void JacobiStep(
-		DeviceArray<DeviceArray<Matrix>>& arrayR,
-		DeviceArray<Matrix>& arrayDiagInverse,
-		DeviceArray<Coord>& array_b,
+		DeviceArray<Matrix> arrayR,
+		DeviceArray<int> arrayRIndex,
+		DeviceArray<Matrix> arrayDiagInverse,
+		DeviceArray<Coord> array_b,
 		
-		NeighborList<NPair>& restShapes,
+		NeighborList<NPair> restShapes,
 
-		DeviceArray<Coord>& y_pre,
-		DeviceArray<Coord>& y_next) 
+		DeviceArray<Coord> y_pre,
+		DeviceArray<Coord> y_next) 
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= y_pre.size()) return;
@@ -362,7 +423,7 @@ namespace Physika
 		Coord sigma = Coord(0.0);
 		for (int ne = 1; ne < size_i; ++ne) {
 			int index_j = restShapes.getElement(pId, ne).index;
-			Matrix remainder = arrayR[pId][ne];
+			Matrix remainder = arrayR[arrayRIndex[pId] + ne];
 			sigma += remainder * y_pre[index_j];
 		}
 		y_next[pId] = arrayDiagInverse[pId] * (array_b[pId] - sigma);
@@ -371,13 +432,40 @@ namespace Physika
 	// copy src to dst
 	template <typename Coord>
 	__global__ void arrayCopy(
-		DeviceArray<Coord>& src,
-		DeviceArray<Coord>& dst)
+		DeviceArray<Coord> src,
+		DeviceArray<Coord> dst)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= src.size()) return;
 
 		dst[pId] = src[pId];
+	}
+
+	template <typename Real, typename Coord>
+	__global__ void computeDelta(
+		DeviceArray<Coord> y_next,
+		DeviceArray<Coord> y_pre,
+		DeviceArray<Real> delta_norm)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= y_next.size()) return;
+
+		delta_norm[pId] = (y_next[pId] - y_pre[pId]).norm();
+	}
+
+	template <typename Coord>
+	bool isExitNaN_vec3f(Coord vec) {
+		float tmp = vec[0] + vec[1] + vec[2];
+		if (std::isnan(tmp))return true;
+		else return false;
+	}
+
+	template <typename Matrix>
+	bool isExitNaN_mat3f(Matrix mat) {
+		float tmp = mat(0, 0) + mat(0, 1) + mat(0, 2) + mat(1, 0) 
+					+ mat(1, 1) + mat(1, 2) + mat(2, 0) + mat(2, 1) + mat(2, 2);
+		if (std::isnan(tmp))return true;
+		else return false;
 	}
 
 }
