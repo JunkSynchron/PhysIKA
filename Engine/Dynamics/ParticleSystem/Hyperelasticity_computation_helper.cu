@@ -9,20 +9,7 @@
 
 namespace Physika 
 {
-	template <typename NPair>
-	__global__ void findNieghborNums(
-		NeighborList<NPair> restShapes,
-		DeviceArray<int> neighborNums)
-	{
-		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= neighborNums.size()) return;
-
-		// size_i include this particle itself
-		int size_i = restShapes.getNeighborSize(pId);
-		neighborNums[pId] = size_i;
-	}
-
-
+	
 	//-test: to find all the deformation gradient matrices
 	// these deformation gradients are mat3x3
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
@@ -241,36 +228,6 @@ namespace Physika
 	}
 
 
-	// cuda test function
-	template <typename Real, typename Coord, typename Matrix, typename NPair>
-	__global__ void HM_cuda_test_function(
-		DeviceArray<Coord> position,
-		NeighborList<NPair> restShapes,
-		Real horizon,
-		Real distance,
-		Real mu,
-		Real lambda,
-		DeviceArray<Matrix> resultGInverseMatrices,
-		DeviceArray<Matrix> firstPiolaKirchhoffMatrices)
-	{
-		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= position.size()) return;
-
-		
-		Real total_weight = Real(0);
-		Matrix deform_i = Matrix(0.0f);
-		getDeformationGradient(
-			pId,
-			position,
-			restShapes,
-			horizon,
-			&deform_i);
-
-		// deformation gradients mat SVD
-		Matrix matU = Matrix(0.0), matV = Matrix(0.0), matS = Matrix(0.0);
-		//getSVDmatrix(deform_i, &matU, &matS, &matV);
-	}
-
 	//-test: to find generalized inverse of all deformation gradient matrices
 	// these deformation gradients are mat3x3, may be singular
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
@@ -429,28 +386,95 @@ namespace Physika
 		y_next[pId] = arrayDiagInverse[pId] * (array_b[pId] - sigma);
 	}
 
-	// copy src to dst
-	template <typename Coord>
-	__global__ void arrayCopy(
-		DeviceArray<Coord> src,
-		DeviceArray<Coord> dst)
+	/*************************** functions below are used for debug *******************************************/
+
+	// cuda test function
+	template <typename Real, typename Coord, typename Matrix, typename NPair>
+	__global__ void get_DeformationMat_F(
+		DeviceArray<Coord> position,
+		NeighborList<NPair> restShapes,
+		Real horizon,
+		Real distance,
+		Real mu,
+		Real lambda,
+		DeviceArray<Matrix> resultDeformationMatrices)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= src.size()) return;
+		if (pId >= position.size()) return;
 
-		dst[pId] = src[pId];
+
+		Real total_weight = Real(0);
+		Matrix deform_i = Matrix(0.0f);
+		getDeformationGradient(
+			pId,
+			position,
+			restShapes,
+			horizon,
+			&deform_i);
+
+		resultDeformationMatrices[pId] = deform_i;
+		
+	}
+
+	template <typename NPair>
+	__global__ void findNieghborNums(
+		NeighborList<NPair> restShapes,
+		DeviceArray<int> neighborNums)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= neighborNums.size()) return;
+
+		// size_i include this particle itself
+		int size_i = restShapes.getNeighborSize(pId);
+		neighborNums[pId] = size_i;
 	}
 
 	template <typename Real, typename Coord>
-	__global__ void computeDelta(
-		DeviceArray<Coord> y_next,
-		DeviceArray<Coord> y_pre,
+	__global__ void computeDelta_vec_const(
+		DeviceArray<Coord> vec1,
+		Coord vec2,
 		DeviceArray<Real> delta_norm)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= y_next.size()) return;
+		if (pId >= vec1.size()) return;
 
-		delta_norm[pId] = (y_next[pId] - y_pre[pId]).norm();
+		delta_norm[pId] = (vec1[pId] - vec2).norm();
+	}
+
+	template <typename Real, typename Coord>
+	__global__ void computeDelta_vec(
+		DeviceArray<Coord> vec1,
+		DeviceArray<Coord> vec2,
+		DeviceArray<Real> delta_norm)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= vec1.size()) return;
+
+		delta_norm[pId] = (vec1[pId] - vec2[pId]).norm();
+	}
+
+	template <typename Real, typename Matrix>
+	__global__ void computeDelta_mat_const(
+		DeviceArray<Matrix> mat1,
+		Matrix mat2,
+		DeviceArray<Real> delta_norm)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= mat1.size()) return;
+
+		delta_norm[pId] = (mat1[pId] - mat2).frobeniusNorm();
+	}
+
+	template <typename Real, typename Matrix>
+	__global__ void computeDelta_mat(
+		DeviceArray<Matrix> mat1,
+		DeviceArray<Matrix> mat2,
+		DeviceArray<Real> delta_norm)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= mat1.size()) return;
+
+		delta_norm[pId] = (mat1[pId] - mat2[pId]).frobeniusNorm();
 	}
 
 	template <typename Coord>

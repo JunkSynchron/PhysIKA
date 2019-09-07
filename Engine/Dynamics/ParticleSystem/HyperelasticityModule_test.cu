@@ -293,6 +293,49 @@ namespace Physika
 		cuSynchronize();
 		*/
 
+		{// for debug
+			DeviceArray<Matrix> deformationMats_F(numParticles);
+			get_DeformationMat_F << <pDims, BLOCK_SIZE >> > (
+				this->m_position.getValue(),
+				this->m_restShape.getValue(),
+				this->m_horizon.getValue(),
+				this->m_distance.getValue(),
+				this->m_mu.getValue(),
+				this->m_lambda.getValue(),
+				deformationMats_F
+				);
+			cuSynchronize();
+
+			{
+				DeviceArray<Real> delta_F_norm(numParticles);
+				computeDelta_mat_const << <pDims, BLOCK_SIZE >> > (
+					deformationMats_F,
+					Matrix::identityMatrix(),
+					delta_F_norm
+					);
+				cuSynchronize();
+
+				HostArray<Real> deltaNorm_host(numParticles);
+				Function1Pt::copy(deltaNorm_host, delta_F_norm);
+				Real delta_max = 0.0;
+				Real delta_average = 0.0;
+				for (int i = 0; i < numParticles; ++i) {
+					if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
+					delta_average += deltaNorm_host[i];
+				}
+				delta_average = delta_average / numParticles;
+
+				Log::sendMessage(Log::User, "F_I_delta_max: " + std::to_string(delta_max));
+				Log::sendMessage(Log::User, "F_I_delta_ave: " + std::to_string(delta_average));
+
+				deltaNorm_host.release();
+				delta_F_norm.release();
+			}
+
+			deformationMats_F.release();
+		}
+		
+
 		get_GInverseOfF_PiolaKirchhoff << <pDims, BLOCK_SIZE >> >(
 			this->m_position.getValue(),
 			this->m_restShape.getValue(),
@@ -303,6 +346,78 @@ namespace Physika
 			GInverseMatrices,
 			FirstPiolaKirchhoffMatrices);
 		cuSynchronize();
+
+		{ // for debug
+			DeviceArray<Real> delta_invF_norm(numParticles);
+			computeDelta_mat_const << <pDims, BLOCK_SIZE >> > (
+				GInverseMatrices,
+				Matrix::identityMatrix(),
+				delta_invF_norm
+				);
+			cuSynchronize();
+
+			HostArray<Real> deltaNorm_host(numParticles);
+			Function1Pt::copy(deltaNorm_host, delta_invF_norm);
+			Real delta_max = 0.0;
+			Real delta_average = 0.0;
+			for (int i = 0; i < numParticles; ++i) {
+				if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
+				delta_average += deltaNorm_host[i];
+			}
+			delta_average = delta_average / numParticles;
+
+			Log::sendMessage(Log::User, "invF_I_max: " + std::to_string(delta_max));
+			Log::sendMessage(Log::User, "invF_I_ave: " + std::to_string(delta_average));
+			
+			deltaNorm_host.reset();
+			delta_invF_norm.release();
+
+			DeviceArray<Real> delta_Piola_norm(numParticles);
+			computeDelta_mat_const << <pDims, BLOCK_SIZE >> > (
+				FirstPiolaKirchhoffMatrices,
+				Matrix(0.0),
+				delta_Piola_norm
+				);
+			cuSynchronize();
+
+			Function1Pt::copy(deltaNorm_host, delta_Piola_norm);
+			delta_max = 0.0;
+			delta_average = 0.0;
+			for (int i = 0; i < numParticles; ++i) {
+				if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
+				delta_average += deltaNorm_host[i];
+			}
+			delta_average = delta_average / numParticles;
+
+			Log::sendMessage(Log::User, "Piola_max: " + std::to_string(delta_max));
+			Log::sendMessage(Log::User, "Piola_ave: " + std::to_string(delta_average));
+
+			deltaNorm_host.reset();
+			delta_Piola_norm.release();
+
+			DeviceArray<Real> velocity_norm(numParticles);
+			computeDelta_vec_const << <pDims, BLOCK_SIZE >> > (
+				this->m_velocity.getValue(),
+				Coord(0.0),
+				velocity_norm
+				);
+			cuSynchronize();
+
+			Function1Pt::copy(deltaNorm_host, velocity_norm);
+			delta_max = 0.0;
+			delta_average = 0.0;
+			for (int i = 0; i < numParticles; ++i) {
+				if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
+				delta_average += deltaNorm_host[i];
+			}
+			delta_average = delta_average / numParticles;
+
+			Log::sendMessage(Log::User, "Velocity_max: " + std::to_string(delta_max));
+			Log::sendMessage(Log::User, "Velocity_ave: " + std::to_string(delta_average));
+
+			velocity_norm.release();
+			deltaNorm_host.release();
+		}
 
 		// mass and volume are set 1.0, (need modified) 
 		Real mass = 1.0;
@@ -430,7 +545,7 @@ namespace Physika
 
 			if (true) {
 				DeviceArray<Real> deltaNorm_device(numParticles);
-				computeDelta << <pDims, BLOCK_SIZE >> >(y_next, y_pre, deltaNorm_device);
+				computeDelta_vec << <pDims, BLOCK_SIZE >> >(y_next, y_pre, deltaNorm_device);
 				cuSynchronize();
 
 				HostArray<Real> deltaNorm_host(numParticles);
@@ -451,8 +566,9 @@ namespace Physika
 					Log::sendMessage(Log::User, "y_delta_max: " + std::to_string(delta_max));
 
 
-					computeDelta << <pDims, BLOCK_SIZE >> >(y_next, this->m_position.getValue(), deltaNorm_device);
+					computeDelta_vec << <pDims, BLOCK_SIZE >> >(y_next, this->m_position.getValue(), deltaNorm_device);
 					cuSynchronize();
+
 					Function1Pt::copy(deltaNorm_host, deltaNorm_device);
 					delta_max = 0.0;
 					delta_average = 0.0;
