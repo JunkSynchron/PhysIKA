@@ -271,7 +271,6 @@ namespace Physika
 		firstPiolaKirchhoffMatrices[pId] = deform_i * (2 * mu*strainMat + lambda * strainMat.trace() * Matrix::identityMatrix());
 	}
 
-
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
 	__global__ void getJacobiMethod_D_R_b_constants(
 		DeviceArray<Coord> position,

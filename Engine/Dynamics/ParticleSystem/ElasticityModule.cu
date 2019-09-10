@@ -396,7 +396,6 @@ namespace Physika
 		cuSynchronize();
 	}
 
-
 	template<typename TDataType>
 	void ElasticityModule<TDataType>::solveElasticity()
 	{

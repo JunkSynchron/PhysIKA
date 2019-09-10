@@ -70,6 +70,11 @@ namespace Physika {
 	class HyperelasticityModule_test : public ElasticityModule<TDataType>
 	{
 	public:
+		typedef typename TDataType::Real Real;
+		typedef typename TDataType::Coord Coord;
+		typedef typename TDataType::Matrix Matrix;
+		typedef TPair<TDataType> NPair;
+
 		HyperelasticityModule_test();
 		~HyperelasticityModule_test() override {};
 		
@@ -85,13 +90,19 @@ namespace Physika {
 		 */
 		void setEnergyFunction(EnergyType type) { m_energyType = type; }
 
+		void solveElasticity() override;
+
 	protected:
-		void enforceElasticity() override;
+		bool initializeImpl() override;
 
 		//void previous_enforceElasticity();
 
 	private:
 		EnergyType m_energyType;
+
+		DeviceArray<Matrix> m_F;
+		DeviceArray<Matrix> m_invF;
+		DeviceArray<Matrix> m_firstPiolaKirchhoffStress;
 	};
 
 }
