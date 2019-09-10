@@ -21,13 +21,16 @@ namespace Physika
 	template <typename Coord>
 	__global__ void test_HM_UpdatePosition(
 		DeviceArray<Coord> position,
-		DeviceArray<Coord> y_next
-		)
+		DeviceArray<Coord> velocity,
+		DeviceArray<Coord> y_next,
+		DeviceArray<Coord> position_old,
+		Real dt)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= position.size()) return;
 
 		position[pId] = y_next[pId];
+		velocity[pId] += (position[pId] - position_old[pId]) / dt;
 	}
 
 	template <typename Real, typename Coord>
@@ -195,6 +198,7 @@ namespace Physika
 	template<typename TDataType>
 	bool HyperelasticityModule_test<TDataType>::initializeImpl()
 	{
+		m_position_old.resize(this->m_position.getElementCount());
 		m_F.resize(this->m_position.getElementCount());
 		m_invF.resize(this->m_position.getElementCount());
 		m_firstPiolaKirchhoffStress.resize(this->m_position.getElementCount());
@@ -264,6 +268,7 @@ namespace Physika
 		DeviceArray<Coord> y_next(numOfParticles);
 
 		Function1Pt::copy(y_pre, this->m_position.getValue());
+		Function1Pt::copy(m_position_old, this->m_position.getValue());
 
 		// do Jacobi method Loop
 		bool convergeFlag = false; // converge or not
@@ -308,8 +313,10 @@ namespace Physika
 
 		test_HM_UpdatePosition << <pDims, BLOCK_SIZE >> > (
 			this->m_position.getValue(),
-			y_next
-			);
+			this->m_velocity.getValue(),
+			y_next,
+			m_position_old,
+			this->getParent()->getDt());
 		cuSynchronize();
 
 		y_pre.release();

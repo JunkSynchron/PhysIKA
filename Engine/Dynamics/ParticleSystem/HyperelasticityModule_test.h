@@ -100,6 +100,8 @@ namespace Physika {
 	private:
 		EnergyType m_energyType;
 
+		DeviceArray<Coord> m_position_old;
+
 		DeviceArray<Matrix> m_F;
 		DeviceArray<Matrix> m_invF;
 		DeviceArray<Matrix> m_firstPiolaKirchhoffStress;

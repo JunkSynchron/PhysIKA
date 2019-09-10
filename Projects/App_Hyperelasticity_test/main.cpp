@@ -53,6 +53,8 @@ void CreateScene()
 	child3->translate(Vector3f(0.25, 0.2, 0.5));
 	child3->setVisible(false);
 	auto hyper_test = std::make_shared<HyperelasticityModule_test<DataType3f>>();
+	hyper_test->setMu(0);
+	hyper_test->setLambda(0);
 	child3->setElasticitySolver(hyper_test);
 	child3->getSurfaceRender()->setColor(Vector3f(1, 1, 0));
 	child3->getElasticitySolver()->setIterationNumber(10);
