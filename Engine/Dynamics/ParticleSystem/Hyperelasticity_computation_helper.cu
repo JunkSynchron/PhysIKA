@@ -228,7 +228,53 @@ namespace Physika
 	}
 
 
-	//-test: to find generalized inverse of all deformation gradient matrices
+	// find generalized inverse of all deformation gradient matrices
+	template <typename Real, typename Coord, typename Matrix, typename NPair>
+	__global__ void get_Ginv_DeformationMat_F(
+		DeviceArray<Coord> position,
+		NeighborList<NPair> restShapes,
+		Real horizon,
+		Real distance,
+		DeviceArray<Matrix> resultDeformationMatrices)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+
+		Real total_weight = Real(0);
+		Matrix deform_i = Matrix(0.0f);
+		getDeformationGradient(
+			pId,
+			position,
+			restShapes,
+			horizon,
+			&deform_i);
+
+		resultDeformationMatrices[pId] = deform_i;
+
+	}
+
+	// find generalized inverse of all deformation gradient matrices
+	template <typename Real, typename Coord, typename Matrix>
+	__global__ void get_PiolaMat_P(
+		DeviceArray<Coord> position,
+		Real mu,
+		Real lambda,
+		DeviceArray<Matrix> resultGInverseMatrices,
+		DeviceArray<Matrix> firstPiolaKirchhoffMatrices)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+		Matrix deform_i = resultGInverseMatrices[pId];
+		// find strain tensor E = 1/2(F^T * F - I)
+		Matrix strainMat = 0.5*(deform_i.transpose() * deform_i - Matrix::identityMatrix());
+		// find first Piola-Kirchhoff matix; StVK material
+		firstPiolaKirchhoffMatrices[pId] = deform_i * (2 * mu*strainMat + lambda * strainMat.trace() * Matrix::identityMatrix());
+
+	}
+
+	//-test: to find generalized inverse of all deformation gradient matrices and Piola-Kirchhoff mat
 	// these deformation gradients are mat3x3, may be singular
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
 	__global__ void get_GInverseOfF_PiolaKirchhoff(
@@ -270,6 +316,7 @@ namespace Physika
 		// find first Piola-Kirchhoff matix; StVK material
 		firstPiolaKirchhoffMatrices[pId] = deform_i * (2 * mu*strainMat + lambda * strainMat.trace() * Matrix::identityMatrix());
 	}
+
 
 
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
@@ -327,7 +374,7 @@ namespace Physika
 				weight = 0.0;
 			}
 
-			arrayR[ arrayRIndex[curParticleID]+ ne] = (-1.0) * dt * dt* volume* volume* (
+			arrayR[arrayRIndex[curParticleID] + ne] = (-1.0) * dt * dt* volume* volume* (
 				weight * PiolaKirchhoffMats[curParticleID] * deformGradGInverseMats[curParticleID]
 				+ weight * PiolaKirchhoffMats[j] * deformGradGInverseMats[j]);
 		}
@@ -352,8 +399,26 @@ namespace Physika
 		GInverseMat(matDiag, &matDiagInverse);
 		arrayDiagInverse[curParticleID] = matDiagInverse;
 
-		array_b[curParticleID] = mass * (position[curParticleID] + dt * velocity[curParticleID]);
+		array_b[curParticleID] = mass * (position[curParticleID] );
 	}
+
+
+
+	template <typename Real, typename Coord>
+	__global__ void getEquation_b_constants(
+		DeviceArray<Coord> position,
+		DeviceArray<Coord> velocity,
+
+		Real mass,
+		Real dt,
+		DeviceArray<Coord> array_b) 
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+		array_b[pId] = mass * (position[pId]);
+	}
+
 
 	
 	// one iteration of Jacobi method 
@@ -386,35 +451,81 @@ namespace Physika
 		y_next[pId] = arrayDiagInverse[pId] * (array_b[pId] - sigma);
 	}
 
-	/*************************** functions below are used for debug *******************************************/
+	
 
-	// cuda test function
+	// 
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
-	__global__ void get_DeformationMat_F(
+	__global__ void equation_JacobiStep(
+		DeviceArray<Matrix> GinvF,
+		DeviceArray<Matrix> FirstPiolaMat,
+
 		DeviceArray<Coord> position,
 		NeighborList<NPair> restShapes,
+
+		Real mass,
+		Real volume,
 		Real horizon,
-		Real distance,
-		Real mu,
-		Real lambda,
-		DeviceArray<Matrix> resultDeformationMatrices)
+		Real dt,
+
+		DeviceArray<Coord> array_b,
+		DeviceArray<Coord> y_pre,
+		DeviceArray<Coord> y_next)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= position.size()) return;
+		if (pId >= y_pre.size()) return;
 
+		int curParticleID = pId;
 
-		Real total_weight = Real(0);
-		Matrix deform_i = Matrix(0.0f);
-		getDeformationGradient(
-			pId,
-			position,
-			restShapes,
-			horizon,
-			&deform_i);
+		NPair np_i = restShapes.getElement(pId, 0);
+		Coord rest_i = np_i.pos;
+		// size_i include this particle itself
+		int size_i = restShapes.getNeighborSize(pId);
 
-		resultDeformationMatrices[pId] = deform_i;
-		
+		CorrectedKernel<Real> g_weightKernel;
+
+		// sigma: sum of Jacobi remainder : matR * vec_y
+		Coord sigma = Coord(0.0);
+		Matrix diag_i = Matrix(0.0);
+
+		Real total_weight = 0.0;
+		for (int ne = 1; ne < size_i; ++ne) {
+			NPair np_j = restShapes.getElement(pId, ne);
+			Coord rest_j = np_j.pos;
+			int index_j = np_j.index;
+
+			Real r = (rest_j - rest_i).norm();
+
+			if (r > EPSILON)
+			{
+				Real weight = g_weightKernel.Weight(r, horizon);
+
+				Matrix remainderMat = dt * dt*volume*volume*(weight*FirstPiolaMat[pId] * GinvF[pId]
+					+ weight * FirstPiolaMat[index_j] * GinvF[index_j]);
+				diag_i += remainderMat;
+				sigma += remainderMat * y_pre[index_j];
+
+				total_weight += weight;
+			}
+		}
+		if (total_weight > EPSILON) {
+			diag_i = diag_i / total_weight;
+			diag_i += mass * Matrix::identityMatrix();
+
+			Matrix inv_diag_i = Matrix(0.0);
+			GInverseMat(diag_i, &inv_diag_i);
+
+			sigma = sigma / total_weight;
+
+			y_next[pId] = inv_diag_i * (array_b[pId] + sigma);
+		}
+		else y_next[pId] = y_pre[pId];
 	}
+
+	/*************************** functions below are used for debug *******************************************/
+	//
+	//
+	//
+
 
 	template <typename NPair>
 	__global__ void findNieghborNums(

@@ -87,6 +87,8 @@ namespace Physika {
 
 	protected:
 		void enforceElasticity() override;
+		void enforceElasticity_old(); 
+		void enforceElasticity_new();
 
 		//void previous_enforceElasticity();
 
