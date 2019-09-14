@@ -42,6 +42,7 @@ namespace Physika
 
 		m_surfaceRender = m_surfaceNode->template addVisualModule<SurfaceMeshRender>("surface_mesh_render");
 		m_surfaceRender->setColor(Vector3f(0.2f, 0.6, 1.0f));
+		m_surfaceNode->setVisible(false);
 
 		//Set the topology mapping from PointSet to TriangleSet
 		auto surfaceMapping = this->template addTopologyMapping<PointSetToPointSet<TDataType>>("surface_mapping");

@@ -92,6 +92,9 @@ namespace Physika {
 
 		void solveElasticity() override;
 
+		void solveElasticityExplicit();
+		void solveElasticityImplicit();
+
 	protected:
 		bool initializeImpl() override;
 
@@ -101,6 +104,9 @@ namespace Physika {
 		EnergyType m_energyType;
 
 		DeviceArray<Coord> m_position_old;
+
+		DeviceArray<Matrix> m_invK;
+		DeviceArray<Matrix> m_invL;
 
 		DeviceArray<Matrix> m_F;
 		DeviceArray<Matrix> m_invF;
