@@ -26,11 +26,6 @@ namespace Physika
 		m_forceDensity.getReference()->reset();
 	}
 
-	template<typename TDataType>
-	void ParticleIntegrator<TDataType>::end()
-	{
-
-	}
 
 	template<typename TDataType>
 	bool ParticleIntegrator<TDataType>::initializeImpl()
@@ -46,6 +41,7 @@ namespace Physika
 		m_prePosition.resize(num);
 		m_preVelocity.resize(num);
 
+
 		return true;
 	}
 
@@ -60,6 +56,33 @@ namespace Physika
 		if (pId >= forceDensity.size()) return;
 
 		vel[pId] += dt * (forceDensity[pId] + Coord(0, gravity, 0));
+	}
+
+	template<typename Real, typename Coord>
+	__global__ void K_UpdateVelocity_extra_fixed_force(
+		DeviceArray<Coord> vel,
+		DeviceArray<Coord> forceDensity,
+		Real gravity,
+		Real extra_force_density,
+		Real dt,
+		Vector<int,3> bar_xyz)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= forceDensity.size()) return;
+
+		vel[pId] += dt * (forceDensity[pId] + Coord(0, gravity, 0));
+
+		int total_size = bar_xyz[0] * bar_xyz[1] * bar_xyz[2];
+		int cross_section_size = bar_xyz[1] * bar_xyz[2];
+
+		if (pId < cross_section_size) {
+			
+			vel[pId] += dt * Coord(-extra_force_density, 0, 0);
+		}
+		if (total_size - pId <= cross_section_size) {
+			
+			vel[pId] += dt * Coord(extra_force_density, 0, 0);
+		}
 	}
 
 
@@ -83,11 +106,26 @@ namespace Physika
 		Real gravity = SceneGraph::getInstance().getGravity();
 		cuint pDims = cudaGridSize(m_position.getReference()->size(), BLOCK_SIZE);
 
-		K_UpdateVelocity << <pDims, BLOCK_SIZE >> > (
-			m_velocity.getValue(), 
-			m_forceDensity.getValue(),
-			gravity,
-			dt);
+		if (!exit_gravity) { gravity = Real(0.0); }
+
+		if (extra_force > 0.0) {
+			K_UpdateVelocity_extra_fixed_force << <pDims, BLOCK_SIZE >> > (
+				m_velocity.getValue(),
+				m_forceDensity.getValue(),
+				gravity,
+				extra_force,
+				dt,
+				bar_xyz);
+			cuSynchronize()
+		}
+		else {
+			K_UpdateVelocity << <pDims, BLOCK_SIZE >> > (
+				m_velocity.getValue(),
+				m_forceDensity.getValue(),
+				gravity,
+				dt);
+			cuSynchronize();
+		}
 
 		return true;
 	}
@@ -104,16 +142,64 @@ namespace Physika
 		pos[pId] += dt * vel[pId];
 	}
 
+	template<typename Real, typename Coord>
+	__global__ void K_UpdatePosition_fixed_offset(
+		DeviceArray<Coord> pos,
+		DeviceArray<Coord> vel,
+		DeviceArray<Coord> pre_pos,
+		Real stretch_velocity,
+		Real dt,
+		bool end_phase_call,
+		Vector<int, 3> bar_xyz)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= pos.size()) return;
+
+		int total_size = bar_xyz[0] * bar_xyz[1] * bar_xyz[2];
+		int cross_section_size = bar_xyz[1] * bar_xyz[2];
+
+		if (pId < cross_section_size) {
+			
+			if (end_phase_call) {
+				pos[pId] = pre_pos[pId] + dt * Coord(-stretch_velocity, 0, 0);
+			}
+		}
+		else if (total_size - pId <= cross_section_size) {
+			if (end_phase_call) {
+				pos[pId] = pre_pos[pId] + dt * Coord(stretch_velocity, 0, 0);
+			}
+		}
+		else {
+			if (!end_phase_call) {
+				pos[pId] += dt * vel[pId];
+			}
+		}
+	}
+
 	template<typename TDataType>
 	bool ParticleIntegrator<TDataType>::updatePosition()
 	{
 		Real dt = getParent()->getDt();
 		cuint pDims = cudaGridSize(m_position.getReference()->size(), BLOCK_SIZE);
 
-		K_UpdatePosition << <pDims, BLOCK_SIZE >> > (
-			m_position.getValue(), 
-			m_velocity.getValue(), 
-			dt);
+		if (extra_stretch > 0.0) {
+			K_UpdatePosition_fixed_offset << <pDims, BLOCK_SIZE >> > (
+				m_position.getValue(),
+				m_velocity.getValue(),
+				m_prePosition,
+				extra_stretch,
+				dt,
+				false,
+				bar_xyz);
+			cuSynchronize();
+		}
+		else {
+			K_UpdatePosition << <pDims, BLOCK_SIZE >> > (
+				m_position.getValue(),
+				m_velocity.getValue(),
+				dt);
+			cuSynchronize();
+		}
 
 		return true;
 	}
@@ -126,4 +212,24 @@ namespace Physika
 
 		return true;
 	}
+
+	template<typename TDataType>
+	void ParticleIntegrator<TDataType>::end()
+	{
+		Real dt = getParent()->getDt();
+		cuint pDims = cudaGridSize(m_position.getReference()->size(), BLOCK_SIZE);
+
+		if (extra_stretch > 0.0) {
+			K_UpdatePosition_fixed_offset << <pDims, BLOCK_SIZE >> > (
+				m_position.getValue(),
+				m_velocity.getValue(),
+				m_prePosition,
+				extra_stretch,
+				dt,
+				true,
+				bar_xyz);
+			cuSynchronize();
+		}
+	}
+
 }

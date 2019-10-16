@@ -13,11 +13,11 @@ namespace Physika
 {
 	IMPLEMENT_CLASS_1(ParticleElasticBody, TDataType)
 
-	template<typename TDataType>
+		template<typename TDataType>
 	ParticleElasticBody<TDataType>::ParticleElasticBody(std::string name)
 		: ParticleSystem<TDataType>(name)
 	{
-		m_horizon.setValue(0.0085);
+		m_horizon.setValue(0.02);
 		this->attachField(&m_horizon, "horizon", "horizon");
 
 		auto m_integrator = this->template setNumericalIntegrator<ParticleIntegrator<TDataType>>("integrator");
@@ -42,6 +42,7 @@ namespace Physika
 
 		m_surfaceRender = m_surfaceNode->template addVisualModule<SurfaceMeshRender>("surface_mesh_render");
 		m_surfaceRender->setColor(Vector3f(0.2f, 0.6, 1.0f));
+		m_surfaceNode->setVisible(false);
 
 		//Set the topology mapping from PointSet to TriangleSet
 		auto surfaceMapping = this->template addTopologyMapping<PointSetToPointSet<TDataType>>("surface_mapping");
@@ -52,7 +53,7 @@ namespace Physika
 	template<typename TDataType>
 	ParticleElasticBody<TDataType>::~ParticleElasticBody()
 	{
-		
+
 	}
 
 	template<typename TDataType>
@@ -129,7 +130,7 @@ namespace Physika
 		m_horizon.connect(solver->m_horizon);
 
 		this->deleteModule(module);
-		
+
 		solver->setName("elasticity");
 		this->addConstraintModule(solver);
 	}

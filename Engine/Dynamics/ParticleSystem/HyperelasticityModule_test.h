@@ -85,15 +85,38 @@ namespace Physika {
 		 */
 		void setEnergyFunction(EnergyType type) { m_energyType = type; }
 
+		void solveElasticity() override;
+		void solveElasticityExplicit();
+		void solveElasticityImplicit();
+		void setMethodExplicit() { ImplicitMethod = false; };
+		void setMethodImplicit() { ImplicitMethod = true; };
+		void setInitialStretch(typename TDataType::Real rate);
+
+
 	protected:
-		void enforceElasticity() override;
-		void enforceElasticity_old(); 
-		void enforceElasticity_new();
+		bool initializeImpl() override;
+
 
 		//void previous_enforceElasticity();
 
 	private:
+		bool ImplicitMethod = true;
+
 		EnergyType m_energyType;
+
+		DeviceArray<Matrix> m_invK;
+		DeviceArray<Matrix> m_invL;
+
+		DeviceArray<Matrix> m_F;
+		DeviceArray<Matrix> m_invF;
+		DeviceArray<Matrix> m_firstPiolaKirchhoffStress;
+
+		bool debug_pos_isNaN = false;
+		bool debug_v_isNaN = false;
+		bool debug_invL_isNaN = false;
+		bool debug_F_isNaN = false;
+		bool debug_invF_isNaN = false;
+		bool debug_Piola_isNaN = false;
 	};
 
 }

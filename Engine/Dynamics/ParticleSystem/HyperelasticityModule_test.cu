@@ -18,231 +18,10 @@ namespace Physika
 	{
 	}
 
-	// previous method
-	/************************************************************************************************
-	template <typename Real, typename Coord, typename Matrix, typename NPair, typename Function>
-	__global__ void HM_EnforceElasticity(
-		DeviceArray<Coord> delta_position,
-		DeviceArray<Real> weights,
-		DeviceArray<Real> bulkCoefs,
-		DeviceArray<Matrix> invK,
-		DeviceArray<Coord> position,
-		NeighborList<NPair> restShapes,
-		Real horizon,
-		Real distance,
-		Real mu,
-		Real lambda,
-		Function func)
-	{
-
-		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= position.size()) return;
-
-		CorrectedKernel<Real> g_weightKernel;
-
-		NPair np_i = restShapes.getElement(pId, 0);
-		Coord rest_i = np_i.pos;
-		int size_i = restShapes.getNeighborSize(pId);
-
-		Coord cur_pos_i = position[pId];
-
-		Coord accPos = Coord(0);
-		Real accA = Real(0);
-		Real bulk_i = bulkCoefs[pId];
-
-		//compute the first invariant
-		Real I1_i = Real(0);
-		Real total_weight = Real(0);
-		for (int ne = 1; ne < size_i; ne++)
-		{
-			NPair np_j = restShapes.getElement(pId, ne);
-			Coord rest_pos_j = np_j.pos;
-			int j = np_j.index;
-			Real r = (rest_i - rest_pos_j).norm();
-
-			if (r > 0.01*horizon)
-			{
-				Real weight = g_weightKernel.Weight(r, horizon);
-				Coord p = (position[j] - cur_pos_i);
-				Real ratio_ij = p.norm() / r;
-
-				I1_i += weight * ratio_ij;
-
-				total_weight += weight;
-			}
-		}
-
-		I1_i = total_weight > EPSILON ? I1_i /= total_weight : Real(1);
-
-		//compute the deformation tensor
-		Matrix deform_i = Matrix(0.0f);
-		for (int ne = 0; ne < size_i; ne++)
-		{
-			NPair np_j = restShapes.getElement(pId, ne);
-			Coord rest_j = np_j.pos;
-			int j = np_j.index;
-
-			Real r = (rest_j - rest_i).norm();
-
-			if (r > EPSILON)
-			{
-				Real weight = g_weightKernel.Weight(r, horizon);
-
-				Coord p = (position[j] - position[pId]) / horizon;
-				Coord q = (rest_j - rest_i) / horizon * weight;
-
-				deform_i(0, 0) += p[0] * q[0]; deform_i(0, 1) += p[0] * q[1]; deform_i(0, 2) += p[0] * q[2];
-				deform_i(1, 0) += p[1] * q[0]; deform_i(1, 1) += p[1] * q[1]; deform_i(1, 2) += p[1] * q[2];
-				deform_i(2, 0) += p[2] * q[0]; deform_i(2, 1) += p[2] * q[1]; deform_i(2, 2) += p[2] * q[2];
-				total_weight += weight;
-			}
-		}
-
-
-		if (total_weight > EPSILON)
-		{
-			deform_i *= (1.0f / total_weight);
-			deform_i = deform_i * invK[pId];
-		}
-		else
-		{
-			total_weight = 1.0f;
-		}
-
-		//Check whether the reference shape is inverted, if yes, simply set K^{-1} to be an identity matrix
-		//Note other solutions are possible.
-		if ((deform_i.determinant()) < -0.001f)
-		{
-			deform_i = Matrix::identityMatrix();
-		}
-
-
-		//solve the elasticity with projective peridynamics
-		for (int ne = 0; ne < size_i; ne++)
-		{
-			NPair np_j = restShapes.getElement(pId, ne);
-			Coord rest_j = np_j.pos;
-			int j = np_j.index;
-			Real r = (rest_j - rest_i).norm();
-
-			Coord cur_pos_j = position[j];
-
-			if (r > 0.01f*horizon)
-			{
-				Real weight = g_weightKernel.WeightRR(r, horizon);
-
-				Coord rest_dir_ij = deform_i * (rest_i - rest_j);
-				Coord cur_dir_ij = cur_pos_i - cur_pos_j;
-
-				cur_dir_ij = cur_dir_ij.norm() > EPSILON ? cur_dir_ij.normalize() : Coord(0);
-				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0, 0, 0);
-
-				Real tau_ij = cur_dir_ij.norm() / r;
-
-				Real mu_ij = mu * bulk_i* func(tau_ij) * g_weightKernel.WeightRR(r, horizon);
-				Coord mu_pos_ij = position[j] + r * rest_dir_ij;
-				Coord mu_pos_ji = position[pId] - r * rest_dir_ij;
-
-				Real lambda_ij = lambda * bulk_i*func(I1_i)*g_weightKernel.WeightRR(r, horizon);
-				Coord lambda_pos_ij = position[j] + r * cur_dir_ij;
-				Coord lambda_pos_ji = position[pId] - r * cur_dir_ij;
-
-				Coord delta_pos_ij = mu_ij * mu_pos_ij + lambda_ij * lambda_pos_ij;
-				Real delta_weight_ij = mu_ij + lambda_ij;
-
-				Coord delta_pos_ji = mu_ij * mu_pos_ji + lambda_ij * lambda_pos_ji;
-
-				accA += delta_weight_ij;
-				accPos += delta_pos_ij;
-
-
-				atomicAdd(&weights[j], delta_weight_ij);
-				atomicAdd(&delta_position[j][0], delta_pos_ji[0]);
-				atomicAdd(&delta_position[j][1], delta_pos_ji[1]);
-				atomicAdd(&delta_position[j][2], delta_pos_ji[2]);
-			}
-		}
-
-		atomicAdd(&weights[pId], accA);
-		atomicAdd(&delta_position[pId][0], accPos[0]);
-		atomicAdd(&delta_position[pId][1], accPos[1]);
-		atomicAdd(&delta_position[pId][2], accPos[2]);
-	}
-
-	template <typename Real, typename Coord>
-	__global__ void HM_UpdatePosition(
-		DeviceArray<Coord> position,
-		DeviceArray<Coord> old_position,
-		DeviceArray<Coord> delta_position,
-		DeviceArray<Real> delta_weights)
-	{
-		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= position.size()) return;
-
-		position[pId] = (old_position[pId] + delta_position[pId]) / (1.0 + delta_weights[pId]);
-	}
-
-	template<typename TDataType>
-	void HyperelasticityModule_test<TDataType>::previous_enforceElasticity()
-	{
-		int num = this->m_position.getElementCount();
-		uint pDims = cudaGridSize(num, BLOCK_SIZE);
-
-		this->m_displacement.reset();
-		this->m_weights.reset();
-
-		switch (m_energyType)
-		{
-		case Linear:
-			HM_EnforceElasticity << <pDims, BLOCK_SIZE >> > (
-				this->m_displacement,
-				this->m_weights,
-				this->m_bulkCoefs,
-				this->m_invK,
-				this->m_position.getValue(),
-				this->m_restShape.getValue(),
-				this->m_horizon.getValue(),
-				this->m_distance.getValue(),
-				this->m_mu.getValue(),
-				this->m_lambda.getValue(),
-				ConstantFunc<Real>());
-			cuSynchronize();
-			break;
-
-		case Quadratic:
-			HM_EnforceElasticity << <pDims, BLOCK_SIZE >> > (
-				this->m_displacement,
-				this->m_weights,
-				this->m_bulkCoefs,
-				this->m_invK,
-				this->m_position.getValue(),
-				this->m_restShape.getValue(),
-				this->m_horizon.getValue(),
-				this->m_distance.getValue(),
-				this->m_mu.getValue(),
-				this->m_lambda.getValue(),
-				QuadraticFunc<Real>());
-			cuSynchronize();
-			break;
-
-		default:
-			break;
-		}
-
-		HM_UpdatePosition << <pDims, BLOCK_SIZE >> > (
-			this->m_position.getValue(),
-			this->m_position_old,
-			this->m_displacement,
-			this->m_weights);
-		cuSynchronize();
-	}
-	***************************************************************************************/
-
 	template <typename Coord>
 	__global__ void test_HM_UpdatePosition(
 		DeviceArray<Coord> position,
-		DeviceArray<Coord> y_next
-		)
+		DeviceArray<Coord> y_next)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= position.size()) return;
@@ -250,315 +29,467 @@ namespace Physika
 		position[pId] = y_next[pId];
 	}
 
+	template <typename Coord>
+	__global__ void HM_UpdatePosition_Velocity(
+		DeviceArray<Coord> position,
+		DeviceArray<Coord> velocity,
+		DeviceArray<Coord> y_next,
+		DeviceArray<Coord> position_old,
+		Real dt)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
 
-	template<typename TDataType>
-	void HyperelasticityModule_test<TDataType>::enforceElasticity() {
-		this->enforceElasticity_old();
+		position[pId] = y_next[pId];
+		velocity[pId] += (position[pId] - position_old[pId]) / dt;
 	}
 
-	template<typename TDataType>
-	void HyperelasticityModule_test<TDataType>::enforceElasticity_new()
+
+	template <typename Real, typename Coord>
+	__global__ void HM_ComputeSourceTerm(
+		DeviceArray<Coord> source,
+		DeviceArray<Coord> position,
+		DeviceArray<Coord> velocity,
+		Real mass,
+		Real dt)
 	{
-		typedef typename TDataType::Real Real;
-		typedef typename TDataType::Coord Coord;
-		typedef typename TDataType::Matrix Matrix;
-		typedef TPair<TDataType> NPair;
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
 
-		int num = this->m_position.getElementCount();
-		uint pDims = cudaGridSize(num, BLOCK_SIZE);
+		source[pId] = mass * (position[pId]);
+	}
 
-		this->m_displacement.reset();
-		this->m_weights.reset();
 
-		int numParticles = num;
+	//-test: to find generalized inverse of all deformation gradient matrices
+	// these deformation gradients are mat3x3, may be singular
+	template <typename Real, typename Coord, typename Matrix, typename NPair>
+	__global__ void HM_ComputeFandInverse(
+		DeviceArray<Matrix> inverseK,
+		DeviceArray<Matrix> inverseL,
+		DeviceArray<Matrix> F,
+		DeviceArray<Matrix> inverseF,
+		DeviceArray<Coord> position,
+		NeighborList<NPair> restShapes,
+		Real horizon)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
 
-		Log::sendMessage(Log::User, "solver start*******************");
+		SmoothKernel<Real> kernSmooth;
 
-		/*
-		{ // for debug
-			DeviceArray<Real> velocity_norm(numParticles);
-			computeDelta_vec_const << <pDims, BLOCK_SIZE >> > (
-				this->m_velocity.getValue(),
-				Coord(0.0),
-				velocity_norm
-				);
-			cuSynchronize();
+		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
+		int size_i = restShapes.getNeighborSize(pId);
 
-			HostArray<Real> deltaNorm_host(numParticles);
-			Function1Pt::copy(deltaNorm_host, velocity_norm);
-			Real delta_max = 0.0;
-			Real delta_average = 0.0;
-			for (int i = 0; i < numParticles; ++i) {
-				if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
-				delta_average += deltaNorm_host[i];
+		Real total_weight = Real(0);
+		Matrix matL_i(0);
+		Matrix matK_i(0);
+		for (int ne = 1; ne < size_i; ne++)
+		{
+			NPair np_j = restShapes.getElement(pId, ne);
+			int j = np_j.index;
+			Coord rest_pos_j = np_j.pos;
+			Real r = (rest_pos_i - rest_pos_j).norm();
+
+			if (r > EPSILON)
+			{
+				Real weight = kernSmooth.Weight(r, horizon);
+
+				Coord p = (position[j] - position[pId]) / horizon;
+				Coord q = (rest_pos_j - rest_pos_i) / horizon;
+
+				matL_i(0, 0) += p[0] * q[0] * weight; matL_i(0, 1) += p[0] * q[1] * weight; matL_i(0, 2) += p[0] * q[2] * weight;
+				matL_i(1, 0) += p[1] * q[0] * weight; matL_i(1, 1) += p[1] * q[1] * weight; matL_i(1, 2) += p[1] * q[2] * weight;
+				matL_i(2, 0) += p[2] * q[0] * weight; matL_i(2, 1) += p[2] * q[1] * weight; matL_i(2, 2) += p[2] * q[2] * weight;
+
+				matK_i(0, 0) += q[0] * q[0] * weight; matK_i(0, 1) += q[0] * q[1] * weight; matK_i(0, 2) += q[0] * q[2] * weight;
+				matK_i(1, 0) += q[1] * q[0] * weight; matK_i(1, 1) += q[1] * q[1] * weight; matK_i(1, 2) += q[1] * q[2] * weight;
+				matK_i(2, 0) += q[2] * q[0] * weight; matK_i(2, 1) += q[2] * q[1] * weight; matK_i(2, 2) += q[2] * q[2] * weight;
+
+				total_weight += weight;
 			}
-			delta_average = delta_average / numParticles;
-
-			Log::sendMessage(Log::User, "Velocity_max: " + std::to_string(delta_max));
-			Log::sendMessage(Log::User, "Velocity_ave: " + std::to_string(delta_average));
-
-			velocity_norm.release();
-			deltaNorm_host.release();
 		}
-		*/
 
-		/****************************************************************************************************/
-		//-test: compute the g-inverse deformation tensor & Piola-Kirchhoff tensor
+		if (total_weight > EPSILON)
+		{
+			matL_i *= (1.0f / total_weight);
+			matK_i *= (1.0f / total_weight);
+		}
 
-		// all the g-inverse matices of deformation gradients F
-		DeviceArray<Matrix> GInverseMatrices(numParticles);
-		// all the first Piola-Kirchhoff tensors
-		DeviceArray<Matrix> FirstPiolaKirchhoffMatrices(numParticles);
+		Matrix R, U, D, V;
+		polarDecomposition(matK_i, R, U, D, V);
+		//	getSVDmatrix(matK_i, &U, &D, &V);
+
+		Real threshold = 0.0001f*horizon;
+
+		bool singularity_K = false;
+		if (D(0, 0) <= threshold || D(1, 1) <= threshold || D(2, 2) <= threshold) {
+			singularity_K = true;
+			Matrix inv_matK_i = V * D*U.transpose();
+			printf("====================================================================\n No. %d\t\t Inv Mat K: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n", pId,
+				inv_matK_i(0, 0), inv_matK_i(0, 1), inv_matK_i(0, 2),
+				inv_matK_i(1, 0), inv_matK_i(1, 1), inv_matK_i(1, 2),
+				inv_matK_i(2, 0), inv_matK_i(2, 1), inv_matK_i(2, 2));
+
+		}
+
+		D(0, 0) = D(0, 0) > threshold ? 1.0 / D(0, 0) : 1.0;
+		D(1, 1) = D(1, 1) > threshold ? 1.0 / D(1, 1) : 1.0;
+		D(2, 2) = D(2, 2) > threshold ? 1.0 / D(2, 2) : 1.0;
+		Matrix inv_mat_K = V * D*U.transpose();
+		inverseK[pId] = inv_mat_K;
+		F[pId] = matL_i * inv_mat_K;
 
 
-		// mass and volume are set 1.0, (need modified) 
-		Real mass = 1.0;
-		Real volume = 1.0;
+		Matrix mat_F = F[pId];
+		if (mat_F.determinant() < EPSILON)
+		{
+			printf("mat_F.determinant < EPSILON\n");
+		}
 
-		// initialize y_pre, y_next
-		DeviceArray<Coord> y_pre(numParticles);
-		DeviceArray<Coord> y_next(numParticles);
-		Function1Pt::copy(y_pre, this->m_position.getValue());
+		bool debug_isNaN_1 = isExitNaN_mat3f(matL_i);
 
-		DeviceArray<Coord> array_b(numParticles);
+		bool is_singular = false;
+		polarDecomposition(mat_F, R, U, D, V);
+		//	getSVDmatrix(matL_i, &U, &D, &V);
+		if (D(0, 0) <= threshold || D(1, 1) <= threshold || D(2, 2) <= threshold) {
+			is_singular = true;
+			printf("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n No. %d\t\t Mat D in mat F: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n", pId,
+				D(0, 0), D(0, 1), D(0, 2),
+				D(1, 0), D(1, 1), D(1, 2),
+				D(2, 0), D(2, 1), D(2, 2));
+		}
+		D(0, 0) = D(0, 0) > threshold ? 1.0 / D(0, 0) : 1.0;
+		D(1, 1) = D(1, 1) > threshold ? 1.0 / D(1, 1) : 1.0;
+		D(2, 2) = D(2, 2) > threshold ? 1.0 / D(2, 2) : 1.0;
+		Matrix inv_mat_F = V * D*U.transpose();
+		inverseF[pId] = inv_mat_F;
+
+		// if singular, compute new F
+		if (is_singular) {
+			Matrix new_D = D;
+			new_D(0, 0) = 1.0 / new_D(0, 0);
+			new_D(1, 1) = 1.0 / new_D(1, 1);
+			new_D(2, 2) = 1.0 / new_D(2, 2);
+
+			mat_F = U * new_D * V;
+			F[pId] = mat_F;
+		}
+
+		// compute inverse L: use inverse F and inverse K
+		Matrix inv_mat_L = inv_mat_K * inv_mat_F;
+		inverseL[pId] = inv_mat_L;
+
 		
-		getEquation_b_constants << <pDims, BLOCK_SIZE >> > (
-			this->m_position.getValue(),
-			this->m_velocity.getValue(),
-			mass,
-			this->getParent()->getDt() / this->getIterationNumber(),
-			array_b);
-		cuSynchronize();
+		bool debug_isNaN_2 = isExitNaN_mat3f(inverseL[pId]);
 
+		if (debug_isNaN_1 == false && debug_isNaN_2 == true) {
 
-		// do Jacobi method Loop
-		bool convergeFlag = false; // converge or not
-		int iterCount = 0;
-
-		while (!convergeFlag) {
-			get_GInverseOfF_PiolaKirchhoff << <pDims, BLOCK_SIZE >> >(
-				y_pre,
-				this->m_restShape.getValue(),
-				this->m_horizon.getValue(),
-				this->m_distance.getValue(),
-				this->m_mu.getValue(),
-				this->m_lambda.getValue(),
-				GInverseMatrices,
-				FirstPiolaKirchhoffMatrices);
-			cuSynchronize();
-
-			equation_JacobiStep << <pDims, BLOCK_SIZE >> > (
-				GInverseMatrices,
-				FirstPiolaKirchhoffMatrices,
-				this->m_position.getValue(),
-				this->m_restShape.getValue(),
-
-				mass,
-				volume,
-				this->m_horizon.getValue(),
-				this->getParent()->getDt() / this->getIterationNumber(),
-
-				array_b,
-				y_pre,
-				y_next);
-			cuSynchronize();
-
-			/*
-			if (iterCount % 4 == 1) {
-				DeviceArray<Real> deltaNorm_device(numParticles);
-				computeDelta_vec << <pDims, BLOCK_SIZE >> >(y_next, y_pre, deltaNorm_device);
-				cuSynchronize();
-
-				HostArray<Real> deltaNorm_host(numParticles);
-
-				Function1Pt::copy(deltaNorm_host, deltaNorm_device);
-
-				Real delta_max = 0.0;
-				Real delta_average = 0.0;
-				for (int i = 0; i < numParticles; ++i) {
-					if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
-					delta_average += deltaNorm_host[i];
-				}
-				delta_average = delta_average / numParticles;
-
-				if (delta_average < EPSILON) {
-					convergeFlag = true;
-					Log::sendMessage(Log::User, "iter_count: " + std::to_string(iterCount));
-					Log::sendMessage(Log::User, "y_delta_max: " + std::to_string(delta_max));
-
-
-					computeDelta_vec << <pDims, BLOCK_SIZE >> >(y_next, this->m_position.getValue(), deltaNorm_device);
-					cuSynchronize();
-
-					Function1Pt::copy(deltaNorm_host, deltaNorm_device);
-					delta_max = 0.0;
-					delta_average = 0.0;
-					for (int i = 0; i < numParticles; ++i) {
-						if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
-						delta_average += deltaNorm_host[i];
-					}
-					delta_average = delta_average / numParticles;
-
-					Log::sendMessage(Log::User, "pos_delta_max: " + std::to_string(delta_max));
-					Log::sendMessage(Log::User, "pos_delta_ave: " + std::to_string(delta_average));
-				}
-
-				deltaNorm_device.release();
-				deltaNorm_host.release();
-
-			}
-			*/
-
-			Function1Pt::copy(y_pre, y_next);
-
-			iterCount++;
-			if (iterCount > 10) {
-				convergeFlag = true;
-				//Log::sendMessage(Log::User, "iter_count: " + std::to_string(iterCount) + "+++");
-			}
+			printf("No. %d\t\t Mat L: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n", pId,
+				matL_i(0, 0), matL_i(0, 1), matL_i(0, 2),
+				matL_i(1, 0), matL_i(1, 1), matL_i(1, 2),
+				matL_i(2, 0), matL_i(2, 1), matL_i(2, 2));
 		}
-
-		GInverseMatrices.release();
-		FirstPiolaKirchhoffMatrices.release();
-		array_b.release();
-
-		test_HM_UpdatePosition << <pDims, BLOCK_SIZE >> > (
-			this->m_position.getValue(),
-			y_next
-			);
-		cuSynchronize();
-
-		y_pre.release();
-		y_next.release();
 
 	}
 
+	template <typename Real, typename Matrix>
+	__global__ void HM_ComputeFirstPiolaKirchhoff_Linear(
+		DeviceArray<Matrix> stressTensor,
+		DeviceArray<Matrix> F,
+		DeviceArray<Matrix> inverseF,
+		Real mu,
+		Real lambda)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= inverseF.size()) return;
+
+		Matrix F_i = F[pId];
+
+		// find strain tensor E = 1/2(F^T * F - I)
+		Matrix epsilon = 0.5*(F_i.transpose() + F_i - Matrix::identityMatrix() );
+		// find first Piola-Kirchhoff matix; Linear material
+		stressTensor[pId] =2 * mu * epsilon + lambda * epsilon.trace() * Matrix::identityMatrix();
+		//stressTensor[pId] = F_i * ( lambda * E.trace() * Matrix::identityMatrix());
+
+
+		/*if (pId == 0)
+		{
+			printf("trace %f \n", epsilon.trace());
+			printf("Mat: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
+				F_i(0, 0), F_i(0, 1), F_i(0, 2),
+				F_i(1, 0), F_i(1, 1), F_i(1, 2),
+				F_i(2, 0), F_i(2, 1), F_i(2, 2));
+		}*/
+	}
+
+	template <typename Real, typename Matrix>
+	__global__ void HM_ComputeFirstPiolaKirchhoff(
+		DeviceArray<Matrix> stressTensor,
+		DeviceArray<Matrix> F,
+		DeviceArray<Matrix> inverseF,
+		Real mu,
+		Real lambda)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= inverseF.size()) return;
+
+		Matrix F_i = F[pId];
+
+		// find strain tensor E = 1/2(F^T * F - I)
+		Matrix E = 0.5*(F_i.transpose() * F_i - Matrix::identityMatrix());
+		// find first Piola-Kirchhoff matix; StVK material
+		stressTensor[pId] = F_i * (2 * mu * E + lambda * E.trace() * Matrix::identityMatrix());
+		//stressTensor[pId] = F_i * ( lambda * E.trace() * Matrix::identityMatrix());
+
+
+		/*if (pId == 0)
+		{
+			printf("trace %f \n", E.trace());
+			printf("Mat: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
+				F_i(0, 0), F_i(0, 1), F_i(0, 2),
+				F_i(1, 0), F_i(1, 1), F_i(1, 2),
+				F_i(2, 0), F_i(2, 1), F_i(2, 2));
+		}*/
+	}
+
+	template <typename Real, typename Coord, typename Matrix, typename NPair>
+	__global__ void HM_JacobiStepExplicit(
+		DeviceArray<Coord> velocity,
+		DeviceArray<Coord> y_new,
+		DeviceArray<Coord> y_old,
+		DeviceArray<Coord> source,
+		DeviceArray<Matrix> stressTensor,
+		DeviceArray<Matrix> invK,
+		DeviceArray<Matrix> invL,
+		NeighborList<NPair> restShapes,
+		Real horizon,
+		Real mass,
+		Real volume,
+		Real dt)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= y_old.size()) return;
+
+		SmoothKernel<Real> kernSmooth;
+
+		const Real scale = volume * volume;
+
+		int size_i = restShapes.getNeighborSize(pId);
+
+		Coord y_i = y_old[pId];
+		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
+		//Matrix PK_i = stressTensor[pId] * invK[pId];
+		Matrix PK_i = stressTensor[pId] * invL[pId];
+
+		Matrix mat_i(0);
+		Coord source_i = source[pId];
+		Coord force_i(0);
+		Real total_weight = 0.0;
+		for (int ne = 0; ne < size_i; ne++)
+		{
+			NPair np_j = restShapes.getElement(pId, ne);
+			int j = np_j.index;
+			Coord y_j = y_old[j];
+			Real r = (np_j.pos - rest_pos_i).norm();
+
+			if (r > EPSILON)
+			{
+				Real weight = kernSmooth.Weight(r, horizon);
+
+				//Matrix PK_j = stressTensor[j] * invK[j];
+				Matrix PK_j = stressTensor[j] * invL[j];
+
+				Matrix PK_ij = scale * weight * (PK_i + PK_j);
+
+				//force_i += PK_ij * (np_j.pos - rest_pos_i);
+				force_i += PK_ij * (y_old[j] - y_old[pId]);
+
+				total_weight += weight;
+			}
+		}
+
+		/*if (total_weight > EPSILON) {
+			force_i *= (1.0 / total_weight);
+		}*/
+
+
+		velocity[pId] += force_i * dt / mass;
+
+		Coord vel = velocity[pId];
+		/*if (pId>=400 && (24000-pId) >400 ) {
+			if (abs(vel[1]) > 3.0) {
+				printf("No. %d \t\t force: %f %f %f \n velocity: %f, %f, %f \n",
+					pId, force_i[0], force_i[1], force_i[2],
+					vel[0], vel[1], vel[2]);
+			}
+		}
+		if (pId == 490) {
+			Coord vel = velocity[pId];
+			printf("velocity: %f, %f, %f \n", vel[0], vel[1], vel[2]);
+		}*/
+		/*if (pId == 0)
+		{
+			printf("force: %f %f %f \n", force_i[0], force_i[1], force_i[2]);
+
+			printf("PK: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
+				PK_i(0, 0), PK_i(0, 1), PK_i(0, 2),
+				PK_i(1, 0), PK_i(1, 1), PK_i(1, 2),
+				PK_i(2, 0), PK_i(2, 1), PK_i(2, 2));
+		}*/
+
+	}
+
+	template <typename Real, typename Coord, typename Matrix, typename NPair>
+	__global__ void HM_JacobiStep(
+		DeviceArray<Coord> y_new,
+		DeviceArray<Coord> y_old,
+		DeviceArray<Coord> v_old,
+		DeviceArray<Matrix> stressTensor,
+		DeviceArray<Matrix> invL,
+		NeighborList<NPair> restShapes,
+		Real horizon,
+		Real mass,
+		Real volume,
+		Real dt)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= y_old.size()) return;
+
+		SmoothKernel<Real> kernSmooth;
+
+		const Real scale = volume * volume;
+
+		int size_i = restShapes.getNeighborSize(pId);
+
+		Coord y_i = y_old[pId];
+		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
+		//Matrix PK_i = stressTensor[pId] * invK[pId];
+		Matrix PK_i = stressTensor[pId] * invL[pId];
+
+		Matrix mat_i(0);
+		Coord mv_i = v_old[pId];
+		Coord totalSource_i = mass * mv_i;
+		Coord dy_i(0);
+		for (int ne = 0; ne < size_i; ne++)
+		{
+			NPair np_j = restShapes.getElement(pId, ne);
+			int j = np_j.index;
+			Coord y_j = y_old[j];
+			Real r = (np_j.pos - rest_pos_i).norm();
+
+			if (r > EPSILON)
+			{
+				Real weight = kernSmooth.Weight(r, horizon);
+
+				Matrix PK_j = stressTensor[j] * invL[j];
+
+				Matrix PK_ij = dt * dt* scale * weight * (PK_i + PK_j);
+				mat_i += PK_ij;
+
+				//totalSource_i += PK_ij*(y_old[j]-y_old[pId]);
+				totalSource_i += PK_ij * (y_old[j]);
+			}
+		}
+
+		mat_i += mass * Matrix::identityMatrix();
+		y_new[pId] = mat_i.inverse()*totalSource_i;
+	}
+
+
 	template<typename TDataType>
-	void HyperelasticityModule_test<TDataType>::enforceElasticity_old()
+	bool HyperelasticityModule_test<TDataType>::initializeImpl()
+	{
+		m_position_old.resize(this->m_position.getElementCount());
+		m_F.resize(this->m_position.getElementCount());
+		m_invK.resize(this->m_position.getElementCount());
+		m_invF.resize(this->m_position.getElementCount());
+		m_invL.resize(this->m_position.getElementCount());
+		m_firstPiolaKirchhoffStress.resize(this->m_position.getElementCount());
+
+		debug_pos_isNaN = false;
+		debug_v_isNaN = true;
+		debug_invL_isNaN = true;
+		debug_F_isNaN = false;
+		debug_invF_isNaN = false;
+		debug_Piola_isNaN = true;
+
+		return ElasticityModule::initializeImpl();
+	}
+
+
+	template<typename TDataType>
+	void HyperelasticityModule_test<TDataType>::solveElasticity()
 	{
 		typedef typename TDataType::Real Real;
 		typedef typename TDataType::Coord Coord;
 		typedef typename TDataType::Matrix Matrix;
-		typedef TPair<TDataType> NPair;
 
-		int num = this->m_position.getElementCount();
-		uint pDims = cudaGridSize(num, BLOCK_SIZE);
+
+		if (!(debug_v_isNaN || debug_pos_isNaN) ) {
+			HostArray<Coord> test_velocity(this->m_velocity.getValue().size());
+			Function1Pt::copy(test_velocity, this->m_velocity.getValue());
+			debug_v_isNaN = isExitNaN_array_vec3f(test_velocity);
+			if (debug_v_isNaN) {
+				Log::sendMessage(Log::User, "NaN velocity before solver----------------------------\n");
+				printf("NaN velocity before solver----------------------------\n");
+			}
+			test_velocity.release();
+
+			HostArray<Coord> test_position(this->m_position.getValue().size());
+			Function1Pt::copy(test_position, this->m_position.getValue());
+			debug_pos_isNaN = isExitNaN_array_vec3f(test_position);
+			if (debug_pos_isNaN) {
+				Log::sendMessage(Log::User, "NaN position before solver----------------------------\n");
+				printf("NaN position before solver----------------------------\n");
+			}
+			test_position.release();
+		}		
+
+		if (ImplicitMethod) { 
+			solveElasticityImplicit();
+			printf("Implicit method\n");
+		}
+		else { 
+			solveElasticityExplicit();
+		};
+
+		if (!(debug_v_isNaN || debug_pos_isNaN)) {
+			HostArray<Coord> test_velocity(this->m_velocity.getValue().size());
+			Function1Pt::copy(test_velocity, this->m_velocity.getValue());
+			debug_v_isNaN = isExitNaN_array_vec3f(test_velocity);
+			if (debug_v_isNaN) {
+				Log::sendMessage(Log::User, "NaN velocity after solver----------------------------\n");
+				printf("NaN velocity after solver----------------------------\n");
+			}
+			test_velocity.release();
+
+			HostArray<Coord> test_position(this->m_position.getValue().size());
+			Function1Pt::copy(test_position, this->m_position.getValue());
+			debug_pos_isNaN = isExitNaN_array_vec3f(test_position);
+			if (debug_pos_isNaN) {
+				Log::sendMessage(Log::User, "NaN position after solver----------------------------\n");
+				printf("NaN position after solver----------------------------\n");
+			}
+			test_position.release();
+		}
+
+	}
+
+
+	template<typename TDataType>
+	void HyperelasticityModule_test<TDataType>::solveElasticityExplicit()
+	{
+		int numOfParticles = this->m_position.getElementCount();
+		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
 		this->m_displacement.reset();
 		this->m_weights.reset();
-
-		int numParticles = num;
 
 		Log::sendMessage(Log::User, "solver start!!!");
 
 		/****************************************************************************************************/
 		//-test: compute the g-inverse deformation tensor & Piola-Kirchhoff tensor
 
-		// all the g-inverse matices of deformation gradients F
-		DeviceArray<Matrix> GInverseMatrices(numParticles);
-		// all the first Piola-Kirchhoff tensors
-		DeviceArray<Matrix> FirstPiolaKirchhoffMatrices(numParticles);
-
-
-		// cuda test function
-		/***************************************************
-		HM_cuda_test_function << <pDims, BLOCK_SIZE >> >(
-			this->m_position.getValue(),
-			this->m_restShape.getValue(),
-			this->m_horizon.getValue(),
-			this->m_distance.getValue(),
-			this->m_mu.getValue(),
-			this->m_lambda.getValue(),
-			GInverseMatrices,
-			FirstPiolaKirchhoffMatrices);
-		cuSynchronize();
-		*/
-
-
-		get_GInverseOfF_PiolaKirchhoff << <pDims, BLOCK_SIZE >> >(
-			this->m_position.getValue(),
-			this->m_restShape.getValue(),
-			this->m_horizon.getValue(),
-			this->m_distance.getValue(),
-			this->m_mu.getValue(),
-			this->m_lambda.getValue(),
-			GInverseMatrices,
-			FirstPiolaKirchhoffMatrices);
-		cuSynchronize();
-
-		/*
-		{ // for debug
-			DeviceArray<Real> delta_invF_norm(numParticles);
-			computeDelta_mat_const << <pDims, BLOCK_SIZE >> > (
-				GInverseMatrices,
-				Matrix::identityMatrix(),
-				delta_invF_norm
-				);
-			cuSynchronize();
-
-			HostArray<Real> deltaNorm_host(numParticles);
-			Function1Pt::copy(deltaNorm_host, delta_invF_norm);
-			Real delta_max = 0.0;
-			Real delta_average = 0.0;
-			for (int i = 0; i < numParticles; ++i) {
-				if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
-				delta_average += deltaNorm_host[i];
-			}
-			delta_average = delta_average / numParticles;
-
-			Log::sendMessage(Log::User, "invF_I_max: " + std::to_string(delta_max));
-			Log::sendMessage(Log::User, "invF_I_ave: " + std::to_string(delta_average));
-			
-			deltaNorm_host.reset();
-			delta_invF_norm.release();
-
-			DeviceArray<Real> delta_Piola_norm(numParticles);
-			computeDelta_mat_const << <pDims, BLOCK_SIZE >> > (
-				FirstPiolaKirchhoffMatrices,
-				Matrix(0.0),
-				delta_Piola_norm
-				);
-			cuSynchronize();
-
-			Function1Pt::copy(deltaNorm_host, delta_Piola_norm);
-			delta_max = 0.0;
-			delta_average = 0.0;
-			for (int i = 0; i < numParticles; ++i) {
-				if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
-				delta_average += deltaNorm_host[i];
-			}
-			delta_average = delta_average / numParticles;
-
-			Log::sendMessage(Log::User, "Piola_max: " + std::to_string(delta_max));
-			Log::sendMessage(Log::User, "Piola_ave: " + std::to_string(delta_average));
-
-			deltaNorm_host.reset();
-			delta_Piola_norm.release();
-
-			DeviceArray<Real> velocity_norm(numParticles);
-			computeDelta_vec_const << <pDims, BLOCK_SIZE >> > (
-				this->m_velocity.getValue(),
-				Coord(0.0),
-				velocity_norm
-				);
-			cuSynchronize();
-
-			Function1Pt::copy(deltaNorm_host, velocity_norm);
-			delta_max = 0.0;
-			delta_average = 0.0;
-			for (int i = 0; i < numParticles; ++i) {
-				if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
-				delta_average += deltaNorm_host[i];
-			}
-			delta_average = delta_average / numParticles;
-
-			Log::sendMessage(Log::User, "Velocity_max: " + std::to_string(delta_max));
-			Log::sendMessage(Log::User, "Velocity_ave: " + std::to_string(delta_average));
-
-			velocity_norm.release();
-			deltaNorm_host.release();
-		}
-		*/
 
 		// mass and volume are set 1.0, (need modified) 
 		Real mass = 1.0;
@@ -572,187 +503,224 @@ namespace Physika
 
 		// find size_i: number of neighbors of i-th particle
 
-
-		DeviceArray<int>& arrayRIndex = this->m_restShape.getValue().getIndex();
-		int arrayRSize = this->m_restShape.getValue().getElementsSize();
-	
-		// allocate memory for arrayR, use 1-dim array store 2-dim sparse matrix
-		DeviceArray<Matrix> arrayR(arrayRSize);
-
-		// we stored inverse of mat D
-		DeviceArray<Matrix> arrayDiagInverse(numParticles);
-		DeviceArray<Coord> array_b(numParticles);
-
-
-		getJacobiMethod_D_R_b_constants << <pDims, BLOCK_SIZE >> >(
-			this->m_position.getValue(),
-			this->m_restShape.getValue(), 
-			this->m_velocity.getValue(),
-
-			this->m_horizon.getValue(),
-			mass,
-			volume,
-			this->getParent()->getDt() / this->getIterationNumber(),
-
-			GInverseMatrices,
-			FirstPiolaKirchhoffMatrices,
-			arrayR,
-			arrayRIndex,
-			arrayDiagInverse,
-			array_b); 
-		cuSynchronize();
-
-		// check whether there be NaN error
-		/********************************************************
-		bool exitNaN_F = false;
-		bool exitNaN_Piola = false;
-		bool exitNaN_arrayDiag = false;
-		bool exitNaN_array_b = false;
-		bool exitNaN_arrayR = false;
-		HostArray<Matrix> tmpMats(numParticles);
-		Function1Pt::copy(tmpMats, GInverseMatrices);
-		for (int i = 0; i < numParticles; ++i) {
-			if (isExitNaN_mat3f(tmpMats[i])) {
-				exitNaN_F = true;
-				break;
-			}
-		}
-		tmpMats.reset();
-		Function1Pt::copy(tmpMats, FirstPiolaKirchhoffMatrices);
-		for (int i = 0; i < numParticles; ++i) {
-			if (isExitNaN_mat3f(tmpMats[i])) {
-				exitNaN_Piola = true;
-				break;
-			}
-		}
-		tmpMats.reset();
-		Function1Pt::copy(tmpMats, arrayDiagInverse);
-		for (int i = 0; i < numParticles; ++i) {
-			if (isExitNaN_mat3f(tmpMats[i])) {
-				exitNaN_arrayDiag = true;
-				break;
-			}
-		}
-		tmpMats.release();
-
-		HostArray<Coord> tmpVecs(numParticles);
-		Function1Pt::copy(tmpVecs, array_b);
-		for (int i = 0; i < numParticles; ++i) {
-			if (isExitNaN_vec3f(tmpVecs[i])) {
-				exitNaN_array_b = true;
-				break;
-			}
-		}
-		tmpVecs.release();
-
-		tmpMats.resize(arrayRSize);
-		Function1Pt::copy(tmpMats, arrayR);
-		for (int i = 0; i < arrayRSize; ++i) {
-			if (isExitNaN_mat3f(tmpMats[i])) {
-				exitNaN_arrayR = true;
-				break;
-			}
-		}
-		tmpMats.release();
-		Log::sendMessage(Log::User, std::to_string(exitNaN_F&&exitNaN_Piola&&exitNaN_arrayDiag&&exitNaN_array_b&&exitNaN_arrayR));
-		*/
-
-
-		// release no use array
-		GInverseMatrices.release();
-		FirstPiolaKirchhoffMatrices.release();
-
-
 		// initialize y_now, y_next_iter
-		DeviceArray<Coord> y_pre(numParticles);
-		DeviceArray<Coord> y_next(numParticles);
+		DeviceArray<Coord> y_pre(numOfParticles);
+		DeviceArray<Coord> y_next(numOfParticles);
 
 		Function1Pt::copy(y_pre, this->m_position.getValue());
+		Function1Pt::copy(y_next, this->m_position.getValue());
+		Function1Pt::copy(m_position_old, this->m_position.getValue());
 
 		// do Jacobi method Loop
 		bool convergeFlag = false; // converge or not
 		int iterCount = 0;
 
-		while (!convergeFlag) {
-			JacobiStep << <pDims, BLOCK_SIZE >> > (
-				arrayR,
-				arrayRIndex,
-				arrayDiagInverse,
-				array_b,
+		while (iterCount < 1) {
+
+			HM_ComputeFandInverse << <pDims, BLOCK_SIZE >> > (
+				m_invK,
+				m_invL,
+				m_F,
+				m_invF,
+				this->m_position.getValue(),
 				this->m_restShape.getValue(),
-				y_pre,
-				y_next);
+				this->m_horizon.getValue());
 			cuSynchronize();
 
-			if (iterCount % 4 == 2) {
-				DeviceArray<Real> deltaNorm_device(numParticles);
-				computeDelta_vec << <pDims, BLOCK_SIZE >> >(y_next, y_pre, deltaNorm_device);
-				cuSynchronize();
+			if (!(debug_invL_isNaN || debug_F_isNaN || debug_invF_isNaN) ) {
+				HostArray<Matrix> tmp_mats(m_F.size());
 
-				HostArray<Real> deltaNorm_host(numParticles);
-
-				Function1Pt::copy(deltaNorm_host, deltaNorm_device);
-
-				Real delta_max = 0.0;
-				Real delta_average = 0.0;
-				for (int i = 0; i < numParticles; ++i) {
-					if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
-					delta_average += deltaNorm_host[i];
-				}
-				delta_average = delta_average / numParticles;
-
-				if (delta_average < EPSILON) { 
-					convergeFlag = true; 
-					Log::sendMessage(Log::User, "iter_count: " + std::to_string(iterCount));
-					Log::sendMessage(Log::User, "y_delta_max: " + std::to_string(delta_max));
-
-
-					computeDelta_vec << <pDims, BLOCK_SIZE >> >(y_next, this->m_position.getValue(), deltaNorm_device);
-					cuSynchronize();
-
-					Function1Pt::copy(deltaNorm_host, deltaNorm_device);
-					delta_max = 0.0;
-					delta_average = 0.0;
-					for (int i = 0; i < numParticles; ++i) {
-						if (deltaNorm_host[i] > delta_max) { delta_max = deltaNorm_host[i]; }
-						delta_average += deltaNorm_host[i];
-					}
-					delta_average = delta_average / numParticles;
-
-					Log::sendMessage(Log::User, "pos_delta_max: " + std::to_string(delta_max));
-					Log::sendMessage(Log::User, "pos_delta_ave: " + std::to_string(delta_average));
+				Function1Pt::copy(tmp_mats, m_invL);
+				debug_invL_isNaN = isExitNaN_array_mat3f(tmp_mats);
+				if (debug_invL_isNaN) {
+					Log::sendMessage(Log::User, "NaN in invL =================================\n");
+					printf("NaN in invL =================================\n");
 				}
 
-				deltaNorm_device.release();
-				deltaNorm_host.release();
+				Function1Pt::copy(tmp_mats, m_F);
+				debug_F_isNaN = isExitNaN_array_mat3f(tmp_mats);
+				if (debug_F_isNaN) {
+					Log::sendMessage(Log::User, "NaN in F =================================\n");
+					printf("NaN in F =================================\n");
+				}
 
+				Function1Pt::copy(tmp_mats, m_invF);
+				debug_invF_isNaN = isExitNaN_array_mat3f(tmp_mats);
+				if (debug_invF_isNaN) {
+					Log::sendMessage(Log::User, "NaN in invF =================================\n");
+					printf("NaN in invF =================================\n");
+				}
+
+				tmp_mats.release();
 			}
+
+			HM_ComputeFirstPiolaKirchhoff << <pDims, BLOCK_SIZE >> > (
+				m_firstPiolaKirchhoffStress,
+				m_F,
+				m_invF,
+				this->m_mu.getValue(),
+				this->m_lambda.getValue());
+			cuSynchronize();
+
+			if (!debug_Piola_isNaN) {
+				HostArray<Matrix> tmp_mats(m_F.size());
+
+				Function1Pt::copy(tmp_mats, m_firstPiolaKirchhoffStress);
+				debug_Piola_isNaN = isExitNaN_array_mat3f(tmp_mats);
+				if (debug_Piola_isNaN) {
+					Log::sendMessage(Log::User, "NaN in PiolaKirchhoffStress =================================");
+					printf("NaN in PiolaKirchhoffStress =================================");
+				}
+
+				tmp_mats.release();
+			}
+
+			// 			HM_JacobiStep << <pDims, BLOCK_SIZE >> > (
+			// 				y_next,
+			// 				y_pre,
+			// 				m_position_old,
+			// 				m_firstPiolaKirchhoffStress,
+			// 				m_invL,
+			// 				this->m_restShape.getValue(),
+			// 				this->m_horizon.getValue(),
+			// 				mass, volume, this->getParent()->getDt());
+
+
+
+			HM_JacobiStepExplicit << <pDims, BLOCK_SIZE >> > (
+				this->m_velocity.getValue(),
+				y_next,
+				y_pre,
+				m_position_old,
+				m_firstPiolaKirchhoffStress,
+				m_invK,
+				m_invL,
+				this->m_restShape.getValue(),
+				this->m_horizon.getValue(),
+				mass, volume, this->getParent()->getDt());
 
 			Function1Pt::copy(y_pre, y_next);
 
 			iterCount++;
-			if (iterCount > 20) { 
-				convergeFlag = true;
-				Log::sendMessage(Log::User, "iter_count: " + std::to_string(iterCount) + "+++");
-			}
 		}
 
-		arrayR.release();
-		array_b.release();
-		arrayDiagInverse.release();
+		y_pre.release();
+		y_next.release();
+	}
 
-		test_HM_UpdatePosition << <pDims, BLOCK_SIZE >> > (
+
+	template<typename TDataType>
+	void HyperelasticityModule_test<TDataType>::solveElasticityImplicit()
+	{
+		int numOfParticles = this->m_position.getElementCount();
+		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
+
+		this->m_displacement.reset();
+		this->m_weights.reset();
+
+		Log::sendMessage(Log::User, "solver start!!!");
+
+		/****************************************************************************************************/
+		//-test: compute the g-inverse deformation tensor & Piola-Kirchhoff tensor
+
+
+		// mass and volume are set 1.0, (need modified) 
+		Real mass = 1.0;
+		Real volume = 1.0;
+
+
+		/**************************** Jacobi method ************************************************/
+		// compute constants of the linear equations
+
+		// find out i-th particle's all neighbors and compute diagonal component D & remainder sparse matrix R
+
+		// find size_i: number of neighbors of i-th particle
+
+		// initialize y_now, y_next_iter
+		DeviceArray<Coord> y_pre(numOfParticles);
+		DeviceArray<Coord> y_next(numOfParticles);
+
+		Function1Pt::copy(y_pre, this->m_position.getValue());
+		Function1Pt::copy(y_next, this->m_position.getValue());
+		Function1Pt::copy(m_position_old, this->m_position.getValue());
+
+		// do Jacobi method Loop
+		bool convergeFlag = false; // converge or not
+		int iterCount = 0;
+
+		while (iterCount < 50) {
+
+			HM_ComputeFandInverse << <pDims, BLOCK_SIZE >> > (
+				m_invK,
+				m_invL,
+				m_F,
+				m_invF,
+				this->m_position.getValue(),
+				this->m_restShape.getValue(),
+				this->m_horizon.getValue());
+			cuSynchronize();
+
+			HM_ComputeFirstPiolaKirchhoff << <pDims, BLOCK_SIZE >> > (
+				m_firstPiolaKirchhoffStress,
+				m_F,
+				m_invF,
+				this->m_mu.getValue(),
+				this->m_lambda.getValue());
+			cuSynchronize();
+
+			HM_JacobiStep << <pDims, BLOCK_SIZE >> > (
+				y_next,
+				y_pre,
+				m_position_old,
+				m_firstPiolaKirchhoffStress,
+				m_invL,
+				this->m_restShape.getValue(),
+				this->m_horizon.getValue(),
+				mass, volume, this->getParent()->getDt());
+
+			Function1Pt::copy(y_pre, y_next);
+
+			iterCount++;
+		}
+
+		HM_UpdatePosition_Velocity << <pDims, BLOCK_SIZE >> > (
 			this->m_position.getValue(),
-			y_next
-			);
+			this->m_velocity.getValue(),
+			y_next,
+			m_position_old,
+			this->getParent()->getDt());
 		cuSynchronize();
 
 		y_pre.release();
 		y_next.release();
-
 	}
 
 
+	template <typename Real, typename Coord>
+	__global__ void HM_setInitialStretch(
+		Real rate,
+		DeviceArray<Coord> position
+		) 
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+		Coord pos = position[pId];
+		pos[0] += rate *(pos[0] - 0.5);
+		position[pId] = pos;
+	}
+
+	template<typename TDataType>
+	void HyperelasticityModule_test<TDataType>::setInitialStretch(typename TDataType::Real rate) {
+		int numOfParticles = this->m_position.getElementCount();
+		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
+
+		HM_setInitialStretch << <pDims, BLOCK_SIZE >> > (
+			rate,
+			this->m_position.getValue()
+			);
+		cuSynchronize();
+	}
 
 
 #ifdef PRECISION_FLOAT
