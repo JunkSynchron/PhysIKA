@@ -17,7 +17,7 @@ namespace Physika
 	ParticleElasticBody<TDataType>::ParticleElasticBody(std::string name)
 		: ParticleSystem<TDataType>(name)
 	{
-		m_horizon.setValue(0.0085);
+		m_horizon.setValue(0.02);
 		this->attachField(&m_horizon, "horizon", "horizon");
 
 		auto m_integrator = this->template setNumericalIntegrator<ParticleIntegrator<TDataType>>("integrator");

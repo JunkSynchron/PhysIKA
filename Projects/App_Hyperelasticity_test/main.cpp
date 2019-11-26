@@ -40,6 +40,8 @@ void CreateScene()
 {
 	SceneGraph& scene = SceneGraph::getInstance();
 
+	scene.setGravity(-9.8f);
+
 	std::shared_ptr<StaticBoundary<DataType3f>> root = scene.createNewScene<StaticBoundary<DataType3f>>();
 	root->loadCube(Vector3f(0), Vector3f(1.0), 0.005, true);
 
@@ -49,13 +51,13 @@ void CreateScene()
 	child3->setMass(1.0);
 //   	child3->loadParticles("../Media/bunny/bunny_points.obj");
 //   	child3->loadSurface("../Media/bunny/bunny_mesh.obj");
-	child3->scale(0.7);
-	child3->setDt(0.0001f);
+	child3->scale(0.8);
+	child3->setDt(0.004f);
 //	child3->translate(Vector3f(0.25, 0.1, 0.5));
 	child3->setVisible(true);
 	auto hyper_test = std::make_shared<HyperelasticityModule_test<DataType3f>>();
-	hyper_test->setMu(3000);
-	hyper_test->setLambda(1000);
+	hyper_test->setMu(1200);
+	hyper_test->setLambda(400);
 	child3->setElasticitySolver(hyper_test);
 	child3->getSurfaceRender()->setColor(Vector3f(1, 1, 0));
 	child3->getElasticitySolver()->setIterationNumber(10);

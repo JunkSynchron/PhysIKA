@@ -21,9 +21,9 @@ namespace Physika
 // 				}
 // 			}
 // 		}
-		for (Real x = 0.495; x < 0.5025; x += 0.005) {
-			for (Real y = 0.0025; y < 0.01; y += 0.005) {
-				for (Real z = 0.495; z < 0.5025; z += 0.005) {
+		for (Real x = 0.495; x < 0.4975; x += 0.005) {
+			for (Real y = 0.0075; y < 0.015; y += 0.005) {
+				for (Real z = 0.495; z < 0.4975; z += 0.005) {
 					positions.push_back(Coord(Real(x), Real(y), Real(z)));
 				}
 			}

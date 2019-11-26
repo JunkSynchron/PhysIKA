@@ -11,6 +11,7 @@
  */
 #pragma once
 #include "ElasticityModule.h"
+#include "Core/Utility/Reduction.h"
 
 namespace Physika {
 
@@ -95,6 +96,10 @@ namespace Physika {
 		void solveElasticityExplicit();
 		void solveElasticityImplicit();
 
+		void solveElasticityGradientDescent();
+
+		void getEnergy(Real& totalEnergy);
+
 	protected:
 		bool initializeImpl() override;
 
@@ -103,14 +108,17 @@ namespace Physika {
 	private:
 		EnergyType m_energyType;
 
-		DeviceArray<Coord> m_position_old;
-
 		DeviceArray<Matrix> m_invK;
 		DeviceArray<Matrix> m_invL;
+
+		DeviceArray<Real> m_energy;
+		DeviceArray<Coord> m_gradient;
 
 		DeviceArray<Matrix> m_F;
 		DeviceArray<Matrix> m_invF;
 		DeviceArray<Matrix> m_firstPiolaKirchhoffStress;
+
+		Reduction<Real>* m_reduce;
 	};
 
 }
