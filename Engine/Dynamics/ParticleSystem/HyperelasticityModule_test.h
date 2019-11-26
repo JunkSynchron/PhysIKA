@@ -98,7 +98,7 @@ namespace Physika {
 
 		void solveElasticityGradientDescent();
 
-		void getEnergy(Real& totalEnergy);
+		void getEnergy(Real& totalEnergy, DeviceArray<Coord> position);
 
 	protected:
 		bool initializeImpl() override;

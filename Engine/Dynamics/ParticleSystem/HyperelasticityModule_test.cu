@@ -333,52 +333,52 @@ namespace Physika
 // 				totalSource_i += PK_ij*(y_j+r*rest_dir_ij);
 // 				weight_i += PK_ij;
 
-// 				Real vol_i = invL[j].determinant();
-// 				Matrix PK_j = F_j*F_j.transpose();
-// 
-// 				Matrix R, U, D, V;
-// 				polarDecomposition(PK_j, R, U, D, V);
-// 
-// 				D(0, 0) = pow(D(0, 0), 1.0f);
-// 				D(1, 1) = pow(D(1, 1), 1.0f);
-// 				D(2, 2) = pow(D(2, 2), 1.0f);
-// 
-// 				Matrix FL_j = F_j*invL[j];
-// 				Matrix PK_ij = mu*dt*dt*scale*weight*U*D*V.transpose();
-// 				Matrix FL_ij = mu*dt*dt*scale*weight*Matrix::identityMatrix();
-// 
-// 				Coord rest_dir_ij = /*F_j*invL[j]**/(y_i - y_j);// F_j*(rest_pos_i - np_j.pos);
-// 				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0);
-// 				totalSource_i += PK_ij*y_j + FL_ij*r*rest_dir_ij;
-// 				mat_i += PK_ij;
+				Real vol_i = invL[j].determinant();
+				Matrix PK_j = F_j*F_j.transpose();
 
+				Matrix R, U, D, V;
+				polarDecomposition(PK_j, R, U, D, V);
 
-				float PK_j = (y_i - y_j).normSquared()/(r*r);
+				D(0, 0) = pow(D(0, 0), 1.0f);
+				D(1, 1) = pow(D(1, 1), 1.0f);
+				D(2, 2) = pow(D(2, 2), 1.0f);
 
-				float PK_ij = mu*dt*dt*scale*weight*PK_j;
-				float FL_ij = mu*dt*dt*scale*weight;// *pow(PK_j, 0.7f);
+				Matrix FL_j = F_j*invL[j];
+				Matrix PK_ij = mu*dt*dt*scale*weight*U*D*V.transpose();
+				Matrix FL_ij = mu*dt*dt*scale*weight*Matrix::identityMatrix();
 
 				Coord rest_dir_ij = /*F_j*invL[j]**/(y_i - y_j);// F_j*(rest_pos_i - np_j.pos);
 				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0);
 				totalSource_i += PK_ij*y_j + FL_ij*r*rest_dir_ij;
-				weight_i += PK_ij;
+				mat_i += PK_ij;
 
-				if (pId == 0)
-				{
-					printf("PK_ij: %f \n", PK_ij);
-				}
+
+// 				float PK_j = (y_i - y_j).normSquared()/(r*r);
+// 
+// 				float PK_ij = mu*dt*dt*scale*weight*PK_j;
+// 				float FL_ij = mu*dt*dt*scale*weight;// *pow(PK_j, 0.7f);
+// 
+// 				Coord rest_dir_ij = /*F_j*invL[j]**/(y_i - y_j);// F_j*(rest_pos_i - np_j.pos);
+// 				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0);
+// 				totalSource_i += PK_ij*y_j + FL_ij*r*rest_dir_ij;
+// 				weight_i += PK_ij;
+// 
+// 				if (pId == 0)
+// 				{
+// 					printf("PK_ij: %f \n", PK_ij);
+// 				}
 			}
 		}
 
-		totalSource_i += mass*mv_i;
-
-		weight_i += mass;
-		y_new[pId] = totalSource_i / weight_i;
-
 // 		totalSource_i += mass*mv_i;
 // 
-// 		mat_i += mass*Matrix::identityMatrix();
-// 		y_new[pId] = mat_i.inverse()*totalSource_i;
+// 		weight_i += mass;
+// 		y_new[pId] = totalSource_i / weight_i;
+
+		totalSource_i += mass*mv_i;
+
+		mat_i += mass*Matrix::identityMatrix();
+		y_new[pId] = mat_i.inverse()*totalSource_i;
 
 
 
@@ -677,7 +677,7 @@ namespace Physika
 		if (pId >= position.size()) return;
 
 		Matrix rotM(0);
-		float theta = 0.0f;// 3.1415926 / 6.0f;
+		float theta = 3.1415926 / 6.0f;
 		rotM(0, 0) = cos(theta);
 		rotM(0, 1) = -sin(theta);
 		rotM(1, 0) = sin(theta);
@@ -852,10 +852,34 @@ namespace Physika
 					y_next);
 				cuSynchronize();
 
+
 				//stepsize adjustment
 				{
-					
 
+					Real totalE_before;
+					Real totalE_current;
+					getEnergy(totalE_before, y_pre);
+					getEnergy(totalE_current, y_next);
+					
+					Real alpha = 1.0f;
+
+					while (totalE_current > totalE_before + 100.0)
+					{
+						printf("alpha: %f \n", alpha);
+
+						alpha *= 0.5;
+
+						HM_ComputeCurrentPosition << <pDims, BLOCK_SIZE >> > (
+							m_gradient,
+							y_pre,
+							y_next,
+							alpha);
+
+						getEnergy(totalE_current, y_next);
+					}
+
+
+					/*
 					HM_Compute1DEnergy << <pDims, BLOCK_SIZE >> > (
 						m_energy,
 						m_position_old,
@@ -904,7 +928,7 @@ namespace Physika
 							this->m_lambda.getValue());
 
 						totalE_current = m_reduce->accumulate(m_energy.getDataPtr(), m_energy.size());
-					}
+					}*/
 
 
 					Function1Pt::copy(y_pre, y_next);
@@ -956,7 +980,7 @@ namespace Physika
 	}
 
 	template<typename TDataType>
-	void HyperelasticityModule_test<TDataType>::getEnergy(Real& totalEnergy)
+	void HyperelasticityModule_test<TDataType>::getEnergy(Real& totalEnergy, DeviceArray<Coord> position)
 	{
 		int numOfParticles = this->m_position.getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
@@ -966,10 +990,13 @@ namespace Physika
 			m_invL,
 			m_F,
 			m_invF,
-			this->m_position.getValue(),
+			position,
 			this->m_restShape.getValue(),
 			this->m_horizon.getValue());
 		cuSynchronize();
+
+		m_mu.setValue(Real(48000));
+		m_lambda.setValue(Real(0));
 
 		HM_ComputeEnergy << <pDims, BLOCK_SIZE >> > (
 			m_energy,
