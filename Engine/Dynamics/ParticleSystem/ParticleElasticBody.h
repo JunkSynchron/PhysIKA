@@ -37,6 +37,8 @@ namespace Physika
 
 		std::shared_ptr<SurfaceMeshRender> getSurfaceRender() { return m_surfaceRender; }
 
+		void loadParticles_randomOffset(Coord lo, Coord hi, Real distance, Real offset_rate);
+
 	public:
 		VarField<Real> m_horizon;
 

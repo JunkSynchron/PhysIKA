@@ -25,6 +25,7 @@ namespace Physika {
 
 		void disableGravity() { exit_gravity = false; }
 		void enableGravity() { exit_gravity = true; }
+		void setGravity(Coord g) { gravity = g; }
 		void setFixedStretchForce(Real f) { extra_force = f; }
 		void setFixedStretchOffset(Real v) { extra_stretch = v; }
 		void setBarSize(Vector<int, 3> xyz) { bar_xyz = xyz; }
@@ -42,6 +43,7 @@ namespace Physika {
 		bool exit_gravity = true;
 		Real extra_force = Real(0.0);
 		Real extra_stretch = Real(0.0);
+		Coord gravity = Coord(0.0, -9.8, 0.0);
 
 	private:
 		DeviceArray<Coord> m_prePosition;

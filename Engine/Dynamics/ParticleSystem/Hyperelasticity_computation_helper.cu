@@ -1,6 +1,7 @@
-#include "HyperelasticityModule_test.h"
 #include "Core/Utility.h"
 #include "Core/Algorithm/MatrixFunc.h"
+#include "Framework/Framework/Node.h"
+#include "Framework/Framework/Log.h"
 
 #include "Kernel.h"
 #include <math.h>
@@ -570,6 +571,7 @@ namespace Physika
 		DeviceArray<Real> delta_norm)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+
 		if (pId >= vec1.size()) return;
 
 		delta_norm[pId] = (vec1[pId] - vec2[pId]).norm();

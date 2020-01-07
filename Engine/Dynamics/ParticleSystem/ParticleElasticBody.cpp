@@ -9,6 +9,9 @@
 #include "ParticleIntegrator.h"
 #include "ElasticityModule.h"
 
+#include <random>
+#include <ctime>
+
 namespace Physika
 {
 	IMPLEMENT_CLASS_1(ParticleElasticBody, TDataType)
@@ -149,6 +152,36 @@ namespace Physika
 		auto mapping = this->template getModule<PointSetToPointSet<TDataType>>("surface_mapping");
 
 		return mapping;
+	}
+
+	template<typename TDataType>
+	void ParticleElasticBody<TDataType>::loadParticles_randomOffset(Coord lo, Coord hi, Real distance, Real offset_rate) {
+		std::vector<Coord> vertList;
+		std::vector<Coord> normalList;
+
+		std::default_random_engine random_e(time(0));
+		std::uniform_real_distribution<double> u(-1.0, 1.0);
+
+		for (Real x = lo[0]; x <= hi[0]; x += distance)
+		{
+			for (Real y = lo[1]; y <= hi[1]; y += distance)
+			{
+				for (Real z = lo[2]; z <= hi[2]; z += distance)
+				{
+					Coord p = Coord(x + u(random_e)*offset_rate*distance, y, z);
+					vertList.push_back(p);
+				}
+			}
+		}
+		normalList.resize(vertList.size());
+
+		m_pSet->setPoints(vertList);
+		m_pSet->setNormals(normalList);
+
+		std::cout << "particle number: " << vertList.size() << std::endl;
+
+		vertList.clear();
+		normalList.clear();
 	}
 
 }

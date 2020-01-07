@@ -104,6 +104,8 @@ namespace Physika {
 
 		EnergyType m_energyType;
 
+		DeviceArray<Real> m_totalWeight;
+
 		DeviceArray<Matrix> m_invK;
 		DeviceArray<Matrix> m_invL;
 

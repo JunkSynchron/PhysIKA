@@ -18,6 +18,39 @@ namespace Physika
 	{
 	}
 
+	template <typename Real, typename Coord, typename NPair>
+	__global__ void HM_ComputeTotalWeight(
+		DeviceArray<Coord> position,
+		NeighborList<NPair> restShapes,
+		DeviceArray<Real> totalWeight,
+		Real horizon)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+		SmoothKernel<Real> kernSmooth;
+
+		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
+		int size_i = restShapes.getNeighborSize(pId);
+
+		Real total_weight = Real(0);
+		for (int ne = 1; ne < size_i; ne++)
+		{
+			NPair np_j = restShapes.getElement(pId, ne);
+			int j = np_j.index;
+			Coord rest_pos_j = np_j.pos;
+			Real r = (rest_pos_i - rest_pos_j).norm();
+
+			if (r > EPSILON)
+			{
+				Real weight = kernSmooth.Weight(r, horizon);
+				total_weight += weight;
+			}
+		}
+
+		totalWeight[pId] = total_weight;
+	}
+
 	template <typename Coord>
 	__global__ void test_HM_UpdatePosition(
 		DeviceArray<Coord> position,
@@ -350,7 +383,8 @@ namespace Physika
 		Real horizon,
 		Real mass,
 		Real volume,
-		Real dt)
+		Real dt,
+		DeviceArray<Real> totalWeights )
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= y_old.size()) return;
@@ -383,7 +417,7 @@ namespace Physika
 
 				Matrix PK_j = stressTensor[j] * invL[j];
 
-				Matrix PK_ij = dt * dt* scale * weight * (PK_i + PK_j);
+				Matrix PK_ij = dt * dt* scale * weight * ( (1.0/totalWeights[pId])*PK_i + (1.0/totalWeights[j])*PK_j);
 				mat_i += PK_ij;
 
 				//totalSource_i += PK_ij*(y_old[j]-y_old[pId]);
@@ -405,6 +439,8 @@ namespace Physika
 		m_invF.resize(this->m_position.getElementCount());
 		m_invL.resize(this->m_position.getElementCount());
 		m_firstPiolaKirchhoffStress.resize(this->m_position.getElementCount());
+
+		m_totalWeight.resize(this->m_position.getElementCount());
 
 		debug_pos_isNaN = false;
 		debug_v_isNaN = true;
@@ -443,7 +479,16 @@ namespace Physika
 				printf("NaN position before solver----------------------------\n");
 			}
 			test_position.release();
-		}		
+		}
+
+		int numOfParticles = this->m_position.getElementCount();
+		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
+		HM_ComputeTotalWeight << <pDims, BLOCK_SIZE >> > (
+			this->m_position.getValue(),
+			this->m_restShape.getValue(),
+			this->m_totalWeight,
+			this->m_horizon.getValue());
+		cuSynchronize();
 
 		if (ImplicitMethod) { 
 			solveElasticityImplicit();
@@ -676,7 +721,8 @@ namespace Physika
 				m_invL,
 				this->m_restShape.getValue(),
 				this->m_horizon.getValue(),
-				mass, volume, this->getParent()->getDt());
+				mass, volume, this->getParent()->getDt(),
+				this->m_totalWeight);
 
 			Function1Pt::copy(y_pre, y_next);
 
