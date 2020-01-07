@@ -23,6 +23,17 @@ namespace Physika
 	}
 
 	template <typename Real, typename Coord>
+	__global__ void computeNorm_vec(
+		DeviceArray<Coord> vec,
+		DeviceArray<Real> norm)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= vec.size()) return;
+
+		norm[pId] = vec[pId].norm();
+	}
+
+	template <typename Real, typename Coord>
 	__global__ void computeRelativeError_vec(
 		DeviceArray<Coord> vec1,
 		DeviceArray<Coord> vec2,
@@ -31,7 +42,7 @@ namespace Physika
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= vec1.size()) return;
 
-		relative_error[pId] = abs( 1 - vec1[pId].norm / vec2[pId].norm );
+		
 	}
 
 	template<typename TDataType>
@@ -64,13 +75,17 @@ namespace Physika
 		result(2, 0) += vec1[2] * vec2[0] ; result(2, 1) += vec1[2] * vec2[1] ; result(2, 2) += vec1[2] * vec2[2] ;
 		return result;
 	}
-
-	// the final result will stored in the element: array[0];
-	// this function will change elements' value
-	template <typename Array_T>
-	void sumOfArray(Array_T array, int array_size) {
-
+	template <typename Real, typename Matrix>
+	COMM_FUNC Real mat3_double_product_mat3(
+		Matrix mat1,
+		Matrix mat2,
+		Real type_arg)
+	{
+		return mat1(0, 0)*mat2(0, 0) + mat1(0, 1)*mat2(0, 1) + mat1(0, 2)*mat2(0, 2)
+			+ mat1(1, 0)*mat2(1, 0) + mat1(1, 1)*mat2(1, 1) + mat1(1, 2)*mat2(1, 2)
+			+ mat1(2, 0)*mat2(2, 0) + mat1(2, 1)*mat2(2, 1) + mat1(2, 2)*mat2(2, 2);
 	}
+
 
 	//**********compute total weight of each particle************************
 	template <typename Real, typename Coord, typename NPair>
@@ -120,6 +135,17 @@ namespace Physika
 	}
 
 	template <typename Coord>
+	__global__ void HM_UpdatePosition_delta_only(
+		DeviceArray<Coord> position,
+		DeviceArray<Coord> delta_y)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+		position[pId] = position[pId] + delta_y[pId];
+	}
+
+	template <typename Coord>
 	__global__ void HM_UpdatePosition_Velocity(
 		DeviceArray<Coord> position,
 		DeviceArray<Coord> velocity,
@@ -134,20 +160,63 @@ namespace Physika
 		velocity[pId] += (position[pId] - position_old[pId]) / dt;
 	}
 
-
-	template <typename Real, typename Coord>
-	__global__ void HM_ComputeSourceTerm(
-		DeviceArray<Coord> source,
+	template <typename Coord>
+	__global__ void HM_UpdateVelocity_only(
 		DeviceArray<Coord> position,
 		DeviceArray<Coord> velocity,
-		Real mass,
+		DeviceArray<Coord> position_old,
 		Real dt)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= position.size()) return;
 
-		source[pId] = mass * (position[pId]);
+		velocity[pId] += (position[pId] - position_old[pId]) / dt;
 	}
+
+
+	template <typename Real, typename Coord, typename Matrix>
+	__global__ void HM_ComputeTotalEnergy_Linear(
+		DeviceArray<Real> energy_i,
+		DeviceArray<Coord> position,
+		DeviceArray<Coord> position_old,
+		DeviceArray<Matrix> F,
+		Real mu,
+		Real lambda,
+		Real mass,
+		Real volume,
+		Real dt)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+		Matrix F_i = F[pId];
+		Matrix epsilon = 0.5*(F_i + F_i.transpose()) - Matrix::identityMatrix();
+		Real elasticity_energy_density_i = mu * mat3_double_product_mat3(epsilon, epsilon, mass) + 0.5*lambda*epsilon.trace()*epsilon.trace();
+
+		energy_i[pId] = 0.5*mass * (position[pId]-position_old[pId]).normSquared()/(dt*dt) + volume* elasticity_energy_density_i;
+	}
+	template <typename Real, typename Coord, typename Matrix>
+	__global__ void HM_ComputeTotalEnergy_StVK(
+		DeviceArray<Real> energy_i,
+		DeviceArray<Coord> position,
+		DeviceArray<Coord> position_old,
+		DeviceArray<Matrix> F,
+		Real mass,
+		Real volume,
+		Real mu,
+		Real lambda,
+		Real dt)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+		Matrix F_i = F[pId];
+		Matrix E_i = 0.5*(F_i.transpose()*F_i - Matrix::identityMatrix());
+		Real elasticity_energy_density_i = mu * mat3_double_product_mat3(E_i, E_i, mass) + 0.5*lambda*E_i.trace()*E_i.trace();
+
+		energy_i[pId] = 0.5*mass * (position[pId] - position_old[pId]).normSquared() / (dt*dt) + volume * elasticity_energy_density_i;
+	}
+
 
 	template <typename Real, typename Coord, typename Matrix>
 	COMM_FUNC Matrix HM_ComputeHessianMatrix_LinearEnergy(
@@ -209,62 +278,6 @@ namespace Physika
 		
 	}
 
-	template <typename Real, typename Coord, typename Matrix, typename NPair>
-	__global__ void HM_ComputeSourceTerm_Linear_singleEnergy(
-		DeviceArray<Coord> sourceItems,
-		DeviceArray<Matrix> inverseK,
-		DeviceArray<Matrix> stressTensors,
-		DeviceArray<Coord> position_old,
-		DeviceArray<Coord> y_current,
-		DeviceArray<Coord> Sum_delta_x,
-		NeighborList<NPair> restShapes,
-		Real horizon,
-		Real mu, Real lambda,
-		Real mass, Real volume, Real dt,
-		Real weightScale)
-	{
-		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= stressTensors.size()) return;
-
-		Coord delta_x = Sum_delta_x[pId];
-		Coord y = y_current[pId];
-		Matrix invK = inverseK[pId];
-
-		Coord b = Coord(0.0);
-		b -= mass * (y_current[pId] - position_old[pId]) / (dt*dt);
-		b -= volume* volume * (stressTensors[pId] * delta_x);
-		b += mass * y / (dt*dt);
-		b += volume * volume*( mu* (delta_x.dot(delta_x))*y + (mu+lambda)*delta_x*(delta_x.dot(y)) );
-		
-
-		SmoothKernel<Real> kernSmooth;
-
-		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
-		int size_i = restShapes.getNeighborSize(pId);
-
-		for (int ne = 1; ne < size_i; ne++)
-		{
-			NPair np_j = restShapes.getElement(pId, ne);
-			int j = np_j.index;
-			Coord rest_pos_j = np_j.pos;
-			Real r = (rest_pos_i - rest_pos_j).norm();
-
-			Coord y_j = y_current[j];
-
-			if (r > EPSILON)
-			{
-				Real weight = kernSmooth.Weight(r, horizon);
-				weight = weight / weightScale;
-
-				Coord dx_ji = vec3_dot_mat3((rest_pos_j - rest_pos_i) / (horizon*horizon), invK);
-
-				b += weight*volume*volume*(mu*(dx_ji.dot(delta_x))*y_j + mu * dx_ji*(delta_x.dot(y_j)) + lambda*delta_x*(dx_ji.dot(y_j)) );
-			}
-		}
-
-		sourceItems[pId] = b;
-	}
-
 
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
 	__global__ void HM_ComputeSourceTerm_Linear(
@@ -289,18 +302,6 @@ namespace Physika
 		int index_i = pId;
 		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
 		int size_i = restShapes.getNeighborSize(pId);
-
-		Matrix partial_Wi_i_i = HM_ComputeHessianMatrix_LinearEnergy(
-			index_i, index_i, index_i,
-			Coord(0.0), Coord(0.0),
-			delta_x_i, delta_x_i,
-			horizon,
-			mu, lambda,
-			mass, volume,
-			Real(0.0), Real(0.0),
-			Matrix::identityMatrix() );
-		Matrix hessian_i_i = (mass / (dt*dt)) * Matrix::identityMatrix() + volume*partial_Wi_i_i;
-		//hessian_i_i not finnished
 
 		Coord energy_gradient_i = Coord(0.0);
 		energy_gradient_i += mass * (y_current[pId] - position_old[pId]) / (dt*dt);
@@ -330,46 +331,11 @@ namespace Physika
 				Coord dx_ji = vec3_dot_mat3((rest_pos_j - rest_pos_i) / (horizon*horizon), invK_i);
 				Coord dx_ij = vec3_dot_mat3((rest_pos_i - rest_pos_j) / (horizon*horizon), invK_j);
 				
-				Coord linear_gradient_Wj_i = weight * (stressTensors[index_j] * dx_ij);
+				Coord linear_gradient_Wj_i = weight * volume *(stressTensors[index_j] * dx_ij);
 				energy_gradient_i += volume * linear_gradient_Wj_i;
-
-				Matrix hessian_Wj_i_i = HM_ComputeHessianMatrix_LinearEnergy(
-					index_j, index_i, index_i,
-					Coord(0.0), Coord(0.0),
-					delta_x_i, delta_x_i,
-					horizon,
-					mu, lambda,
-					mass, volume,
-					weight, weight,
-					Matrix::identityMatrix() );
-
-				hessian_i_i += volume * hessian_Wj_i_i;
-
-				Matrix partial_Wi_i_j = HM_ComputeHessianMatrix_LinearEnergy(
-					index_i, index_i, index_j,
-					dx_ij, dx_ji,
-					delta_x_i, delta_x_j,
-					horizon,
-					mu, lambda,
-					mass, volume,
-					weight, weight,
-					Matrix::identityMatrix());
-				Matrix partial_Wj_i_j = HM_ComputeHessianMatrix_LinearEnergy(
-					index_j, index_i, index_j,
-					dx_ij, dx_ji,
-					delta_x_i, delta_x_j,
-					horizon,
-					mu, lambda,
-					mass, volume,
-					weight, weight,
-					Matrix::identityMatrix());
-
-				b_i += (volume*partial_Wi_i_j + volume*partial_Wj_i_j)*y_j;
 			}
 		}
-
-		b_i += hessian_i_i * y_i;
-		b_i -= energy_gradient_i;
+		b_i = -energy_gradient_i;
 
 		sourceItems[pId] = b_i;
 	}
@@ -474,20 +440,6 @@ namespace Physika
 		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
 		int size_i = restShapes.getNeighborSize(pId);
 
-		Matrix F_i = F[pId];
-		Matrix E_i = 0.5*(F_i.transpose() * F_i - Matrix::identityMatrix() );
-		Matrix partial_Wi_i_i = HM_ComputeHessianMatrix_StVKEnergy(
-			index_i, index_i, index_i,
-			Coord(0.0), Coord(0.0),
-			delta_x_i, delta_x_i,
-			horizon,
-			mu, lambda,
-			mass, volume,
-			Real(0.0), Real(0.0),
-			F_i, E_i);
-		Matrix hessian_i_i = (mass / (dt*dt)) * Matrix::identityMatrix() + volume * partial_Wi_i_i;
-		//hessian_i_i not finnished
-
 		Coord energy_gradient_i = Coord(0.0);
 		energy_gradient_i += mass * (y_current[pId] - position_old[pId]) / (dt*dt);
 		Coord linear_gradient_Wi_i = volume * (stressTensors[index_i] * delta_x_i);
@@ -516,48 +468,12 @@ namespace Physika
 				Coord dx_ji = vec3_dot_mat3((rest_pos_j - rest_pos_i) / (horizon*horizon), invK_i);
 				Coord dx_ij = vec3_dot_mat3((rest_pos_i - rest_pos_j) / (horizon*horizon), invK_j);
 
-				Coord linear_gradient_Wj_i = weight * (stressTensors[index_j] * dx_ij);
+				Coord linear_gradient_Wj_i = weight *volume* (stressTensors[index_j] * dx_ij);
 				energy_gradient_i += volume * linear_gradient_Wj_i;
-
-				Matrix F_j = F[index_j];
-				Matrix E_j = 0.5*(F_j.transpose() * F_j - Matrix::identityMatrix());
-				Matrix hessian_Wj_i_i = HM_ComputeHessianMatrix_StVKEnergy(
-					index_j, index_i, index_i,
-					Coord(0.0), Coord(0.0),
-					delta_x_i, delta_x_i,
-					horizon,
-					mu, lambda,
-					mass, volume,
-					weight, weight,
-					F_j, E_j);
-
-				hessian_i_i += volume * hessian_Wj_i_i;
-
-				Matrix partial_Wi_i_j = HM_ComputeHessianMatrix_StVKEnergy(
-					index_i, index_i, index_j,
-					dx_ij, dx_ji,
-					delta_x_i, delta_x_j,
-					horizon,
-					mu, lambda,
-					mass, volume,
-					weight, weight,
-					F_i, E_i);
-				Matrix partial_Wj_i_j = HM_ComputeHessianMatrix_StVKEnergy(
-					index_j, index_i, index_j,
-					dx_ij, dx_ji,
-					delta_x_i, delta_x_j,
-					horizon,
-					mu, lambda,
-					mass, volume,
-					weight, weight,
-					F_j, E_j);
-
-				b_i += (volume*partial_Wi_i_j + volume * partial_Wj_i_j)*y_j;
 			}
 		}
 
-		b_i += hessian_i_i * y_i;
-		b_i -= energy_gradient_i;
+		b_i = -energy_gradient_i;
 
 		sourceItems[pId] = b_i;
 	}
@@ -671,8 +587,8 @@ namespace Physika
 
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
 	__global__ void HM_JacobiStep_Linear(
-		DeviceArray<Coord> y_new,
-		DeviceArray<Coord> y_old,
+		DeviceArray<Coord> delta_y_new,
+		DeviceArray<Coord> delta_y_old,
 		DeviceArray<Coord> sourceItems,
 		DeviceArray<Matrix> inverseK,
 		DeviceArray<Coord> Sum_delta_x,
@@ -685,13 +601,13 @@ namespace Physika
 		Real weightScale)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= y_old.size()) return;
+		if (pId >= delta_y_old.size()) return;
 
 		Coord totalSource_i = sourceItems[pId];
 		// not finished
 
 		Coord delta_x_i = Sum_delta_x[pId];
-		Coord y_i = y_old[pId];
+
 		Matrix invK_i = inverseK[pId];
 		int index_i = pId;
 		int size_i = restShapes.getNeighborSize(pId);
@@ -715,7 +631,7 @@ namespace Physika
 			NPair np_j = restShapes.getElement(pId, ne);
 			int index_j = np_j.index;
 			Coord rest_pos_j = np_j.pos;
-			Coord y_j = y_old[index_j];
+			Coord delta_y_j = delta_y_old[index_j];
 			Real r = (rest_pos_j - rest_pos_i).norm();
 
 			if (r > EPSILON)
@@ -759,17 +675,17 @@ namespace Physika
 					weight, weight,
 					Matrix::identityMatrix());
 
-				totalSource_i -= (volume*partial_Wi_i_j + volume * partial_Wj_i_j)*y_j;
+				totalSource_i -= (volume*partial_Wi_i_j + volume * partial_Wj_i_j)*delta_y_j;
 			}
 		}
 
-		y_new[pId] = hessian_i_i.inverse()*totalSource_i;
+		delta_y_new[pId] = hessian_i_i.inverse()*totalSource_i;
 	}
 
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
 	__global__ void HM_JacobiStep_StVK(
-		DeviceArray<Coord> y_new,
-		DeviceArray<Coord> y_old,
+		DeviceArray<Coord> delta_y_new,
+		DeviceArray<Coord> delta_y_old,
 		DeviceArray<Coord> sourceItems,
 		DeviceArray<Matrix> F,
 		DeviceArray<Matrix> inverseK,
@@ -783,13 +699,13 @@ namespace Physika
 		Real weightScale)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= y_old.size()) return;
+		if (pId >= delta_y_old.size()) return;
 
 		Coord totalSource_i = sourceItems[pId];
 		// not finished
 
 		Coord delta_x_i = Sum_delta_x[pId];
-		Coord y_i = y_old[pId];
+
 		Matrix invK_i = inverseK[pId];
 		int index_i = pId;
 		int size_i = restShapes.getNeighborSize(pId);
@@ -815,7 +731,7 @@ namespace Physika
 			NPair np_j = restShapes.getElement(pId, ne);
 			int index_j = np_j.index;
 			Coord rest_pos_j = np_j.pos;
-			Coord y_j = y_old[index_j];
+			Coord delta_y_j = delta_y_old[index_j];
 			Real r = (rest_pos_j - rest_pos_i).norm();
 
 			if (r > EPSILON)
@@ -861,11 +777,11 @@ namespace Physika
 					weight, weight,
 					F_j, E_j);
 
-				totalSource_i -= (volume*partial_Wi_i_j + volume * partial_Wj_i_j)*y_j;
+				totalSource_i -= (volume*partial_Wi_i_j + volume * partial_Wj_i_j)*delta_y_j;
 			}
 		}
 
-		y_new[pId] = hessian_i_i.inverse()*totalSource_i;
+		delta_y_new[pId] = hessian_i_i.inverse()*totalSource_i;
 	}
 
 	template<typename TDataType>
@@ -938,11 +854,11 @@ namespace Physika
 		Real volume = 1.0;
 
 		// initialize y_now, y_next_iter
-		DeviceArray<Coord> y_pre(numOfParticles);
-		DeviceArray<Coord> y_next(numOfParticles);
+		DeviceArray<Coord> delta_y_pre(numOfParticles);
+		DeviceArray<Coord> delta_y_next(numOfParticles);
 
-		Function1Pt::copy(y_pre, this->m_position.getValue());
-		Function1Pt::copy(y_next, this->m_position.getValue());
+		delta_y_pre.reset();
+		delta_y_next.reset();
 		Function1Pt::copy(m_position_old, this->m_position.getValue());
 
 		// do Jacobi method Loop
@@ -959,7 +875,14 @@ namespace Physika
 		double newton_first_delta = 0.0;
 		double jacobi_first_delta = 0.0;
 
+		double last_state_energy = DBL_MAX;
+
+		int energy_rise_times = 0;
+
 		for (newton_iteNum = 0; newton_iteNum < newton_maxIterations; ++newton_iteNum) { // newton method loop: H*y_{k+1} = H*y_{k} + gradient of f 
+
+			delta_y_pre.reset();
+			delta_y_next.reset();
 
 			HM_ComputeFandSdx << <pDims, BLOCK_SIZE >> > (
 				m_invK,
@@ -970,6 +893,29 @@ namespace Physika
 				this->m_horizon.getValue(),
 				this->weightScale);
 			cuSynchronize();
+
+			{
+				DeviceArray<Real> energy_particles(numOfParticles);
+				HM_ComputeTotalEnergy_Linear << <pDims, BLOCK_SIZE >> > (
+					energy_particles,
+					this->m_position.getValue(),
+					m_position_old,
+					m_F,
+					this->m_mu.getValue(),
+					this->m_lambda.getValue(),
+					mass, volume,
+					this->getParent()->getDt() );
+				cuSynchronize();
+
+				Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
+				Real current_energy = pReduction->accumulate(energy_particles.getDataPtr(), numOfParticles);
+				energy_particles.release();
+
+				if (current_energy >= last_state_energy) {
+					energy_rise_times++;
+				}
+				last_state_energy = current_energy;
+			}
 
 			HM_ComputeFirstPiolaKirchhoff_Linear << <pDims, BLOCK_SIZE >> > (
 				m_firstPiolaKirchhoffStress,
@@ -983,7 +929,7 @@ namespace Physika
 				m_invK,
 				m_firstPiolaKirchhoffStress,
 				m_position_old,
-				y_next,
+				this->m_position.getValue(),
 				m_Sum_delta_x,
 				this->m_restShape.getValue(),
 				this->m_horizon.getValue(),
@@ -997,8 +943,8 @@ namespace Physika
 			for (jacobi_iteNum = 0; jacobi_iteNum < jacobi_maxIterations; ++jacobi_iteNum) { // jacobi method loop
 
 				HM_JacobiStep_Linear << <pDims, BLOCK_SIZE >> > (
-					y_next,
-					y_pre,
+					delta_y_next,
+					delta_y_pre,
 					m_source_items,
 					m_invK,
 					m_Sum_delta_x,
@@ -1014,7 +960,7 @@ namespace Physika
 				{
 					Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
 					DeviceArray<Real> Delta_y_norm(numOfParticles);
-					computeDelta_vec << <pDims, BLOCK_SIZE >> >(y_pre, y_next, Delta_y_norm);
+					computeNorm_vec << <pDims, BLOCK_SIZE >> >(delta_y_next, Delta_y_norm);
 					cuSynchronize();
 
 					Real max_delta = pReduction->maximum(Delta_y_norm.getDataPtr(), numOfParticles);
@@ -1025,21 +971,22 @@ namespace Physika
 						if (jacobi_first_delta == 0.0) { jacobi_convergeFlag = true; }
 					}
 					else {
-						if (max_delta / jacobi_first_delta < relative_error_threshold) { jacobi_convergeFlag = true; }
+						if ( (max_delta/jacobi_first_delta) < relative_error_threshold) { jacobi_convergeFlag = true; }
 					}
 				}
 
-				Function1Pt::copy(y_pre, y_next);
+				Function1Pt::copy(delta_y_pre, delta_y_next);
 				if (jacobi_convergeFlag) { break; }
 			}
 
+			if (jacobi_iteNum < jacobi_maxIterations) { jacobi_iteNum++; }
 			jacobi_total_iteNum += jacobi_iteNum;
 
 			{
 				Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
 				DeviceArray<Real> Delta_y_norm(numOfParticles);
 
-				computeDelta_vec << <pDims, BLOCK_SIZE >> >(this->m_position.getValue(), y_next, Delta_y_norm);
+				computeNorm_vec << <pDims, BLOCK_SIZE >> >(delta_y_next, Delta_y_norm);
 				cuSynchronize();
 
 				Real max_delta = pReduction->maximum(Delta_y_norm.getDataPtr(), numOfParticles);
@@ -1050,30 +997,31 @@ namespace Physika
 					if (newton_first_delta == 0.0) { newton_convergeFlag = true; }
 				}
 				else {
-					if (max_delta / newton_first_delta < relative_error_threshold) { newton_convergeFlag = true; }
+					if ( (max_delta/newton_first_delta) < relative_error_threshold) { newton_convergeFlag = true; }
 				}
 			}
 
-			HM_UpdatePosition_only << <pDims, BLOCK_SIZE >> > (
+			HM_UpdatePosition_delta_only << <pDims, BLOCK_SIZE >> > (
 				this->m_position.getValue(),
-				y_next);
+				delta_y_next);
 			cuSynchronize();
 
 			if (newton_convergeFlag) { break; }
 		}
 
-		HM_UpdatePosition_Velocity << <pDims, BLOCK_SIZE >> > (
+		HM_UpdateVelocity_only << <pDims, BLOCK_SIZE >> > (
 			this->m_position.getValue(),
 			this->m_velocity.getValue(),
-			y_next,
 			m_position_old,
 			this->getParent()->getDt());
 		cuSynchronize();
 
-		y_pre.release();
-		y_next.release();
+		delta_y_pre.release();
+		delta_y_next.release();
 
-		printf("newton ite num: %d \n jacobi ave_ite num: %lf \n", newton_iteNum + 1 , double(jacobi_total_iteNum + 1) / double(newton_iteNum + 1));
+		if (newton_iteNum < newton_maxIterations) { newton_iteNum++; }
+		printf("newton ite num: %d \n jacobi ave_ite num: %f \n", newton_iteNum, double(jacobi_total_iteNum) / double(newton_iteNum));
+		printf("energy rise times: %d\n", energy_rise_times);
 		if (jacobi_convergeFlag) { printf("jacobi converge!"); }
 		if (newton_convergeFlag) { printf("newton converge!"); }
 	}
@@ -1098,11 +1046,11 @@ namespace Physika
 		Real volume = 1.0;
 
 		// initialize y_now, y_next_iter
-		DeviceArray<Coord> y_pre(numOfParticles);
-		DeviceArray<Coord> y_next(numOfParticles);
+		DeviceArray<Coord> delta_y_pre(numOfParticles);
+		DeviceArray<Coord> delta_y_next(numOfParticles);
 
-		Function1Pt::copy(y_pre, this->m_position.getValue());
-		Function1Pt::copy(y_next, this->m_position.getValue());
+		delta_y_pre.reset();
+		delta_y_next.reset();
 		Function1Pt::copy(m_position_old, this->m_position.getValue());
 
 		// do Jacobi method Loop
@@ -1120,6 +1068,9 @@ namespace Physika
 		double jacobi_first_delta = 0.0;
 
 		for (newton_iteNum = 0; newton_iteNum < newton_maxIterations; ++newton_iteNum) { // newton method loop: H*y_{k+1} = H*y_{k} + gradient of f 
+
+			delta_y_pre.reset();
+			delta_y_next.reset();
 
 			HM_ComputeFandSdx << <pDims, BLOCK_SIZE >> > (
 				m_invK,
@@ -1144,7 +1095,7 @@ namespace Physika
 				m_invK,
 				m_firstPiolaKirchhoffStress,
 				m_position_old,
-				y_next,
+				this->m_position.getValue(),
 				m_Sum_delta_x,
 				this->m_restShape.getValue(),
 				this->m_horizon.getValue(),
@@ -1158,8 +1109,8 @@ namespace Physika
 			for (jacobi_iteNum = 0; jacobi_iteNum < jacobi_maxIterations; ++jacobi_iteNum) { // jacobi method loop
 
 				HM_JacobiStep_StVK << <pDims, BLOCK_SIZE >> > (
-					y_next,
-					y_pre,
+					delta_y_next,
+					delta_y_pre,
 					m_source_items,
 					m_F,
 					m_invK,
@@ -1176,7 +1127,7 @@ namespace Physika
 				{
 					Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
 					DeviceArray<Real> Delta_y_norm(numOfParticles);
-					computeDelta_vec << <pDims, BLOCK_SIZE >> >(y_pre, y_next, Delta_y_norm);
+					computeNorm_vec << <pDims, BLOCK_SIZE >> >(delta_y_next, Delta_y_norm);
 					cuSynchronize();
 
 					Real max_delta = pReduction->maximum(Delta_y_norm.getDataPtr(), numOfParticles);
@@ -1191,17 +1142,18 @@ namespace Physika
 					}
 				}
 
-				Function1Pt::copy(y_pre, y_next);
+				Function1Pt::copy(delta_y_pre, delta_y_next);
 				if (jacobi_convergeFlag) { break; }
 			}
 
+			if (jacobi_iteNum < jacobi_maxIterations) { jacobi_iteNum++; }
 			jacobi_total_iteNum += jacobi_iteNum;
 
 			{
 				Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
 				DeviceArray<Real> Delta_y_norm(numOfParticles);
 
-				computeDelta_vec << <pDims, BLOCK_SIZE >> >(this->m_position.getValue(), y_next, Delta_y_norm);
+				computeNorm_vec << <pDims, BLOCK_SIZE >> >(delta_y_next, Delta_y_norm);
 				cuSynchronize();
 
 				Real max_delta = pReduction->maximum(Delta_y_norm.getDataPtr(), numOfParticles);
@@ -1216,26 +1168,26 @@ namespace Physika
 				}
 			}
 
-			HM_UpdatePosition_only << <pDims, BLOCK_SIZE >> > (
+			HM_UpdatePosition_delta_only << <pDims, BLOCK_SIZE >> > (
 				this->m_position.getValue(),
-				y_next);
+				delta_y_next);
 			cuSynchronize();
 
 			if (newton_convergeFlag) { break; }
 		}
 
-		HM_UpdatePosition_Velocity << <pDims, BLOCK_SIZE >> > (
+		HM_UpdateVelocity_only << <pDims, BLOCK_SIZE >> > (
 			this->m_position.getValue(),
 			this->m_velocity.getValue(),
-			y_next,
 			m_position_old,
 			this->getParent()->getDt());
 		cuSynchronize();
 
-		y_pre.release();
-		y_next.release();
+		delta_y_pre.release();
+		delta_y_next.release();
 
-		printf("newton ite num: %d \n jacobi ave_ite num: %lf \n", newton_iteNum + 1, double(jacobi_total_iteNum + 1) / double(newton_iteNum + 1));
+		if (newton_iteNum < newton_maxIterations) { newton_iteNum++; }
+		printf("newton ite num: %d \n jacobi ave_ite num: %lf \n", newton_iteNum, double(jacobi_total_iteNum) / double(newton_iteNum));
 		if (jacobi_convergeFlag) { printf("jacobi converge!"); }
 		if (newton_convergeFlag) { printf("newton converge!"); }
 	}
