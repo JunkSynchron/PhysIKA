@@ -421,6 +421,7 @@ void GLApp::reshapeFunction(int width, int height)
 
 void GLApp::keyboardFunction(unsigned char key, int x, int y)
 {
+	SceneGraph& scenegraph = SceneGraph::getInstance();
     GLApp *window = static_cast<GLApp*>(glutGetWindowData());
     assert(window);
     switch(key)
@@ -436,6 +437,10 @@ void GLApp::keyboardFunction(unsigned char key, int x, int y)
         break;
 	case ' ':
 		window->m_bAnimate = !(window->m_bAnimate);
+	case 'j':
+		scenegraph.takeOneFrame();
+		glutPostRedisplay();
+
     default:
         break;
     }
