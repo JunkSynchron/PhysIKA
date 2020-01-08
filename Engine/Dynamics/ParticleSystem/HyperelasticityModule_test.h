@@ -67,6 +67,73 @@ namespace Physika {
 	};
 	**************************************************************************/
 
+	enum EnergyType
+	{
+		Linear,
+		Quadratic
+	};
+
+	template<typename Real, typename Matrix>
+	class HyperelasticityModel
+	{
+	public:
+		COMM_FUNC HyperelasticityModel() {};
+
+		COMM_FUNC virtual Real getEnergy(Real lambda1, Real lambda2, Real lambda3) = 0;
+		COMM_FUNC virtual Matrix getStressTensorPositive(Real lambda1, Real lambda2, Real lambda3) = 0;
+		COMM_FUNC virtual Matrix getStressTensorNegative(Real lambda1, Real lambda2, Real lambda3) = 0;
+
+		Real density;
+	};
+
+	template<typename Real, typename Matrix>
+	class StVKModel : public HyperelasticityModel<Real, Matrix>
+	{
+	public:
+		COMM_FUNC StVKModel() : HyperelasticityModel<Real, Matrix>()
+		{
+			density = Real(1);
+			mu = Real(48000);
+			lambda = Real(12000);
+		}
+
+		COMM_FUNC virtual Real getEnergy(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Real I = lambda1*lambda1 + lambda2*lambda2 + lambda3*lambda3;
+			Real sq1 = lambda1*lambda1;
+			Real sq2 = lambda2*lambda2;
+			Real sq3 = lambda3*lambda3;
+			Real II = sq1*sq1 + sq2*sq2 + sq3*sq3;
+			return 0.5*lambda*(I - 3)*(I - 3) + 0.25*mu*(II - 2 * I + 3);
+		}
+
+		COMM_FUNC virtual Matrix getStressTensorPositive(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Real I = lambda1*lambda1 + lambda2*lambda2 + lambda3*lambda3;
+
+			Real D1 = 2 * lambda*I + mu*lambda1*lambda1;
+			Real D2 = 2 * lambda*I + mu*lambda2*lambda2;
+			Real D3 = 2 * lambda*I + mu*lambda3*lambda3;
+
+			Matrix D;
+			D(0, 0) = D1;
+			D(1, 1) = D2;
+			D(2, 2) = D3;
+			return D;
+		}
+
+		COMM_FUNC virtual Matrix getStressTensorNegative(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Matrix D = (6 * lambda + mu)*Matrix::identityMatrix();
+			return D;
+		}
+
+		Real lambda;
+		Real mu;
+	};
+
+
+
 	template<typename TDataType>
 	class HyperelasticityModule_test : public ElasticityModule<TDataType>
 	{
@@ -78,12 +145,6 @@ namespace Physika {
 
 		HyperelasticityModule_test();
 		~HyperelasticityModule_test() override {};
-		
-		enum EnergyType
-		{
-			Linear,
-			Quadratic
-		};
 
 		/**
 		 * @brief Set the energy function
@@ -93,30 +154,34 @@ namespace Physika {
 
 		void solveElasticity() override;
 
-		void solveElasticityExplicit();
 		void solveElasticityImplicit();
 
 		void solveElasticityGradientDescent();
 
-		void getEnergy(Real& totalEnergy, DeviceArray<Coord> position);
-
 	protected:
 		bool initializeImpl() override;
+
+		void initializeVolume();
 
 		//void previous_enforceElasticity();
 
 	private:
+		void getEnergy(Real& totalEnergy, DeviceArray<Coord>& position);
+
 		EnergyType m_energyType;
 
-		DeviceArray<Matrix> m_invK;
-		DeviceArray<Matrix> m_invL;
-
 		DeviceArray<Real> m_energy;
+		DeviceArray<Real> m_volume;
 		DeviceArray<Coord> m_gradient;
+
+		DeviceArray<Coord> m_eigenValues;
 
 		DeviceArray<Matrix> m_F;
 		DeviceArray<Matrix> m_invF;
-		DeviceArray<Matrix> m_firstPiolaKirchhoffStress;
+		DeviceArray<Matrix> m_Rot;
+
+		DeviceArray<Coord> y_pre;
+		DeviceArray<Coord> y_next;
 
 		Reduction<Real>* m_reduce;
 	};

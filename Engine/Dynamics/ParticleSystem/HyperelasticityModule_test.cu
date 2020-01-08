@@ -11,6 +11,20 @@
 
 namespace Physika
 {
+	template<typename Real, typename Matrix>
+	__device__ HyperelasticityModel<Real, Matrix>* getElasticityModel(EnergyType type)
+	{
+		switch (type)
+		{
+		case Linear:
+			return new StVKModel<Real, Matrix>();
+		case Quadratic:
+			return NULL;
+		default:
+			break;
+		}
+	}
+
 	template<typename TDataType>
 	HyperelasticityModule_test<TDataType>::HyperelasticityModule_test()
 		: ElasticityModule<TDataType>()
@@ -37,9 +51,77 @@ namespace Physika
 	//-test: to find generalized inverse of all deformation gradient matrices
 	// these deformation gradients are mat3x3, may be singular
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
+	__global__ void HM_ComputeF(
+		DeviceArray<Matrix> F,
+		DeviceArray<Coord> eigens,
+		DeviceArray<Matrix> RU,
+		DeviceArray<Coord> position,
+		NeighborList<NPair> restShapes,
+		Real horizon)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+		SmoothKernel<Real> kernSmooth;
+
+		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
+		int size_i = restShapes.getNeighborSize(pId);
+
+		Real total_weight = Real(0);
+		Matrix matL_i(0);
+		Matrix matK_i(0);
+		for (int ne = 0; ne < size_i; ne++)
+		{
+			NPair np_j = restShapes.getElement(pId, ne);
+			int j = np_j.index;
+			Coord rest_pos_j = np_j.pos;
+			Real r = (rest_pos_i - rest_pos_j).norm();
+
+			if (r > EPSILON)
+			{
+				Real weight = kernSmooth.Weight(r, horizon);
+
+				Coord p = (position[j] - position[pId]) / horizon;
+				Coord q = (rest_pos_j - rest_pos_i) / horizon;
+
+				matL_i(0, 0) += p[0] * q[0] * weight; matL_i(0, 1) += p[0] * q[1] * weight; matL_i(0, 2) += p[0] * q[2] * weight;
+				matL_i(1, 0) += p[1] * q[0] * weight; matL_i(1, 1) += p[1] * q[1] * weight; matL_i(1, 2) += p[1] * q[2] * weight;
+				matL_i(2, 0) += p[2] * q[0] * weight; matL_i(2, 1) += p[2] * q[1] * weight; matL_i(2, 2) += p[2] * q[2] * weight;
+
+				matK_i(0, 0) += q[0] * q[0] * weight; matK_i(0, 1) += q[0] * q[1] * weight; matK_i(0, 2) += q[0] * q[2] * weight;
+				matK_i(1, 0) += q[1] * q[0] * weight; matK_i(1, 1) += q[1] * q[1] * weight; matK_i(1, 2) += q[1] * q[2] * weight;
+				matK_i(2, 0) += q[2] * q[0] * weight; matK_i(2, 1) += q[2] * q[1] * weight; matK_i(2, 2) += q[2] * q[2] * weight;
+
+				total_weight += weight;
+			}
+		}
+
+		if (total_weight > EPSILON)
+		{
+			matL_i *= (1.0f / total_weight);
+			matK_i *= (1.0f / total_weight);
+		}
+
+		Matrix R, U, D, V;
+		polarDecomposition(matK_i, R, U, D, V);
+
+		Real threshold = 0.0001f*horizon;
+		D(0, 0) = D(0, 0) > threshold ? 1.0 / D(0, 0) : 1.0;
+		D(1, 1) = D(1, 1) > threshold ? 1.0 / D(1, 1) : 1.0;
+		D(2, 2) = D(2, 2) > threshold ? 1.0 / D(2, 2) : 1.0;
+		F[pId] = matL_i*V*D*U.transpose();
+
+		polarDecomposition(F[pId], R, U, D, V);
+
+		eigens[pId] = Coord(D(0, 0), D(1, 1), D(2, 2));
+		RU[pId] = U;
+	}
+
+
+	//-test: to find generalized inverse of all deformation gradient matrices
+	// these deformation gradients are mat3x3, may be singular
+	template <typename Real, typename Coord, typename Matrix, typename NPair>
 	__global__ void HM_ComputeFandInverse(
-		DeviceArray<Matrix> inverseK,
-		DeviceArray<Matrix> inverseL,
 		DeviceArray<Matrix> F,
 		DeviceArray<Matrix> inverseF,
 		DeviceArray<Coord> position,
@@ -96,15 +178,7 @@ namespace Physika
 		D(0, 0) = D(0, 0) > threshold ? 1.0 / D(0, 0) : 1.0;
 		D(1, 1) = D(1, 1) > threshold ? 1.0 / D(1, 1) : 1.0;
 		D(2, 2) = D(2, 2) > threshold ? 1.0 / D(2, 2) : 1.0;
-		inverseK[pId] = V*D*U.transpose();
 		F[pId] = matL_i*V*D*U.transpose();
-
-		polarDecomposition(matL_i, R, U, D, V);
-		D(0, 0) = D(0, 0) > threshold ? 1.0 / D(0, 0) : 1.0;
-		D(1, 1) = D(1, 1) > threshold ? 1.0 / D(1, 1) : 1.0;
-		D(2, 2) = D(2, 2) > threshold ? 1.0 / D(2, 2) : 1.0;
-		inverseL[pId] = V*D*U.transpose();
-		inverseF[pId] = matK_i*V*D*U.transpose();
 
 
 // 		if (pId == 0)
@@ -261,410 +335,131 @@ namespace Physika
 
 	}
 
-
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
 	__global__ void HM_JacobiStep(
-		DeviceArray<Coord> y_new,
-		DeviceArray<Coord> y_tmp,
+		DeviceArray<Coord> y_next,
+		DeviceArray<Coord> y_pre,
 		DeviceArray<Coord> y_old,
-		DeviceArray<Matrix> stressTensor,
-		DeviceArray<Matrix> F,
-		DeviceArray<Matrix> invF,
-		DeviceArray<Matrix> invL,
-		DeviceArray<Matrix> invK,
-		DeviceArray<Coord> position,
+		DeviceArray<Matrix> Rot,
+		DeviceArray<Coord> eigen,
 		NeighborList<NPair> restShapes,
 		Real horizon,
-		Real mass,
-		Real volume,
-		Real dt)
+		DeviceArray<Real> volume,
+		Real dt,
+		EnergyType type)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= y_tmp.size()) return;
+		if (pId >= y_next.size()) return;
 
 		SmoothKernel<Real> kernSmooth;
+		HyperelasticityModel<Real, Matrix>* model = getElasticityModel<Real, Matrix>(type);
 
-		const Real scale = volume*volume;
+		Real lambda_i1 = eigen[pId][0];
+		Real lambda_i2 = eigen[pId][1];
+		Real lambda_i3 = eigen[pId][2];
 
-		int size_i = restShapes.getNeighborSize(pId);
+		Matrix PK1_i = Rot[pId] * model->getStressTensorPositive(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
+		Matrix PK2_i = model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3);
 
-		Real mu = 48000;
-		Real lambda = 12000;
+		Real V_i = volume[pId];
 
-		Coord y_i = y_tmp[pId];
-		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
-		//Matrix PK_i = stressTensor[pId] * invK[pId];
-		Matrix PK_i = stressTensor[pId] * invL[pId];
+		Real mass_i = V_i*model->density;
+
+		Coord y_pre_i = y_pre[pId];
+		Coord y_rest_i = restShapes.getElement(pId, 0).pos;
 
 		Matrix mat_i(0);
-		Coord mv_i = y_old[pId];
-		Coord totalSource_i(0);
-		Coord dy_i(0);
-		Real weight_i = 0.0f;
+		Coord source_i(0);
+
+		int size_i = restShapes.getNeighborSize(pId);
 		for (int ne = 0; ne < size_i; ne++)
 		{
 			NPair np_j = restShapes.getElement(pId, ne);
 			int j = np_j.index;
-			Coord y_j = y_tmp[j];
-			Real r = (np_j.pos - rest_pos_i).norm();
-
-			if (r > EPSILON)
-			{
-				Matrix F_j = F[j];
-
-				Real weight = kernSmooth.Weight(r, horizon);
-
-				//Matrix PK_j = stressTensor[j] * invL[j];
-// 				Matrix PK_j = F_j*F_j.transpose()*F_j*invL[j];
-// 				Matrix FL_j = F_j*invL[j];
-// 
-// 				Matrix PK_ij = mu*dt*dt* scale * weight * (PK_j);
-// 				Matrix FL_ij = mu*dt*dt* scale * weight * (FL_j);
-// 				mat_i += PK_ij;
-// 
-// 				//totalSource_i += PK_ij*(y_old[j]-y_old[pId]);
-// 				totalSource_i += PK_ij*(y_j)+FL_ij*(y_i - y_j);
-
-// 				Real PK_ij = mu*dt*dt*scale*weight;// *Matrix::identityMatrix();
-// 				Real FL_ij = mu*dt*dt*scale*weight;
-// 
-// 				Coord rest_dir_ij = F_j*(rest_pos_i - np_j.pos);
-// 				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0);
-// 				totalSource_i += PK_ij*(y_j+r*rest_dir_ij);
-// 				weight_i += PK_ij;
-
-				Real vol_i = invL[j].determinant();
-				Matrix PK_j = F_j*F_j.transpose();
-
-				Matrix R, U, D, V;
-				polarDecomposition(PK_j, R, U, D, V);
-
-				D(0, 0) = pow(D(0, 0), 1.0f);
-				D(1, 1) = pow(D(1, 1), 1.0f);
-				D(2, 2) = pow(D(2, 2), 1.0f);
-
-				Matrix FL_j = F_j*invL[j];
-				Matrix PK_ij = mu*dt*dt*scale*weight*U*D*V.transpose();
-				Matrix FL_ij = mu*dt*dt*scale*weight*Matrix::identityMatrix();
-
-				Coord rest_dir_ij = /*F_j*invL[j]**/(y_i - y_j);// F_j*(rest_pos_i - np_j.pos);
-				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0);
-				totalSource_i += PK_ij*y_j + FL_ij*r*rest_dir_ij;
-				mat_i += PK_ij;
-
-
-// 				float PK_j = (y_i - y_j).normSquared()/(r*r);
-// 
-// 				float PK_ij = mu*dt*dt*scale*weight*PK_j;
-// 				float FL_ij = mu*dt*dt*scale*weight;// *pow(PK_j, 0.7f);
-// 
-// 				Coord rest_dir_ij = /*F_j*invL[j]**/(y_i - y_j);// F_j*(rest_pos_i - np_j.pos);
-// 				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0);
-// 				totalSource_i += PK_ij*y_j + FL_ij*r*rest_dir_ij;
-// 				weight_i += PK_ij;
-// 
-// 				if (pId == 0)
-// 				{
-// 					printf("PK_ij: %f \n", PK_ij);
-// 				}
-			}
-		}
-
-// 		totalSource_i += mass*mv_i;
-// 
-// 		weight_i += mass;
-// 		y_new[pId] = totalSource_i / weight_i;
-
-		totalSource_i += mass*mv_i;
-
-		mat_i += mass*Matrix::identityMatrix();
-		y_new[pId] = mat_i.inverse()*totalSource_i;
-
-
-
-
-		if (F[pId].determinant() < 0)
-		{
-			printf("Determinant_i: %e \n; Error \n; Error \n; Error \n; Error \n; Error \n",
-				F[pId].determinant());
-		}
-
-
-		if (pId == 0)
-		{
-			printf("F: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-				F[pId](0, 0), F[pId](0, 1), F[pId](0, 2),
-				F[pId](1, 0), F[pId](1, 1), F[pId](1, 2),
-				F[pId](2, 0), F[pId](2, 1), F[pId](2, 2));
-		}
-
-// 		weight_i += 1.0f;
-// 		y_new[pId] = totalSource_i / weight_i;
-
-/*		Coord y_i = y_old[pId];
-		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
-		//Matrix PK_i = stressTensor[pId] * invK[pId];
-		Matrix PK_i = stressTensor[pId] * invL[pId];
-
-		float mat_i(0);
-		Coord mv_i = v_old[pId];
-		Coord totalSource_i(0);
-		Coord dy_i(0);
-		for (int ne = 0; ne < size_i; ne++)
-		{
-			NPair np_j = restShapes.getElement(pId, ne);
-			int j = np_j.index;
-			Coord y_j = y_old[j];
-			Real r = (np_j.pos - rest_pos_i).norm();
-			Real cur_r = (y_j - y_i).norm();
+			Coord y_pre_j = y_pre[j];
+			Real r = (np_j.pos - y_rest_i).norm();
 
 			if (r > EPSILON)
 			{
 				Real weight = kernSmooth.Weight(r, horizon);
 
-				Matrix PK_j = stressTensor[j] * invL[j];
+				Real V_j = volume[j];
 
-				Coord cur_dir_ij = y_i - y_j;
-				cur_dir_ij = cur_dir_ij.norm() > EPSILON ? cur_dir_ij.normalize() : Coord(0);
+				const Real scale = V_i*V_j;
 
-				//Real PK_ij = dt*dt* scale * weight * mu * (cur_r - r) / r;
-				Real PK_ij = dt*dt* scale * weight * mu;
-				mat_i += PK_ij;
+				const Real sw_ij = dt*dt*scale*weight;
 
-				//totalSource_i += PK_ij*(y_old[j]-y_old[pId]);
-				totalSource_i += PK_ij*(y_old[j] + r*cur_dir_ij);
+				Real lambda_j1 = eigen[j][0];
+				Real lambda_j2 = eigen[j][1];
+				Real lambda_j3 = eigen[j][2];
+
+				Matrix PK1_ij = PK1_i + Rot[j]*model->getStressTensorPositive(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
+				Matrix PK2_ij = PK2_i + model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3);
+
+				Coord y_pre_ij = (y_pre_i - y_pre_j);
+				source_i += sw_ij*PK1_ij*y_pre_j + sw_ij*PK2_ij*y_pre_ij;
+				mat_i += sw_ij*PK1_ij;
 			}
 		}
 
-		if (pId == 0)
-		{
-			double tp_d = totalSource_i[0];
-			printf("totalSource_i: \n %e %e %e \n \n",
-				totalSource_i[0], totalSource_i[1], totalSource_i[2]);
-		}
+		Coord y_old_i = y_old[pId];
+		source_i += mass_i*y_old_i;
 
-		totalSource_i += mv_i;
+		mat_i += mass_i*Matrix::identityMatrix();
+		y_next[pId] = mat_i.inverse()*source_i;
 
-		mat_i += 1.0;
-		y_new[pId] = totalSource_i / mat_i;*/
-
-
-
-// 		if (pId == 0)
-// 		{
-// 			printf("tmpPK_i: \n %f %f %f \n %f %f %f \n %f %f %f \n %f	\n",
-// 				mat_i(0, 0), mat_i(0, 1), mat_i(0, 2),
-// 				mat_i(1, 0), mat_i(1, 1), mat_i(1, 2),
-// 				mat_i(2, 0), mat_i(2, 1), mat_i(2, 2), (v_old[pId]- y_new[pId]).norm());
-// 		}
-
-/*		if ((y_new[pId]- v_old[pId]).norm() > 0.1f*horizon)
-		{
-// 			printf("F_i: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				F[pId](0, 0), F[pId](0, 1), F[pId](0, 2),
-// 				F[pId](1, 0), F[pId](1, 1), F[pId](1, 2),
-// 				F[pId](2, 0), F[pId](2, 1), F[pId](2, 2));
-
-			SmoothKernel<Real> kernSmooth;
-
-			Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
-			int size_i = restShapes.getNeighborSize(pId);
-
-			Real total_weight = Real(0);
-			Matrix matL_i(0);
-			Matrix matK_i(0);
-			Matrix invL_i(0);
-			Matrix invK_i(0);
-			Matrix F_i(0);
-			Matrix invF_i(0);
-			for (int ne = 0; ne < size_i; ne++)
-			{
-				NPair np_j = restShapes.getElement(pId, ne);
-				int j = np_j.index;
-				Coord rest_pos_j = np_j.pos;
-				Real r = (rest_pos_i - rest_pos_j).norm();
-
-				if (r > EPSILON)
-				{
-					Real weight = kernSmooth.Weight(r, horizon);
-
-					Coord p = (position[j] - position[pId]) / horizon;
-					Coord q = (rest_pos_j - rest_pos_i) / horizon;
-
-					matL_i(0, 0) += p[0] * q[0] * weight; matL_i(0, 1) += p[0] * q[1] * weight; matL_i(0, 2) += p[0] * q[2] * weight;
-					matL_i(1, 0) += p[1] * q[0] * weight; matL_i(1, 1) += p[1] * q[1] * weight; matL_i(1, 2) += p[1] * q[2] * weight;
-					matL_i(2, 0) += p[2] * q[0] * weight; matL_i(2, 1) += p[2] * q[1] * weight; matL_i(2, 2) += p[2] * q[2] * weight;
-
-					matK_i(0, 0) += q[0] * q[0] * weight; matK_i(0, 1) += q[0] * q[1] * weight; matK_i(0, 2) += q[0] * q[2] * weight;
-					matK_i(1, 0) += q[1] * q[0] * weight; matK_i(1, 1) += q[1] * q[1] * weight; matK_i(1, 2) += q[1] * q[2] * weight;
-					matK_i(2, 0) += q[2] * q[0] * weight; matK_i(2, 1) += q[2] * q[1] * weight; matK_i(2, 2) += q[2] * q[2] * weight;
-
-					total_weight += weight;
-				}
-			}
-
-			if (total_weight > EPSILON)
-			{
-				matL_i *= (1.0f / total_weight);
-				matK_i *= (1.0f / total_weight);
-			}
-
-			Matrix R, U, D, V;
-			polarDecomposition(matK_i, R, U, D, V);
-
-			Real threshold = 0.0001f*horizon;
-			D(0, 0) = D(0, 0) > threshold ? 1.0 / D(0, 0) : 1.0;
-			D(1, 1) = D(1, 1) > threshold ? 1.0 / D(1, 1) : 1.0;
-			D(2, 2) = D(2, 2) > threshold ? 1.0 / D(2, 2) : 1.0;
-			invK_i = V*D*U.transpose();
-			F_i = matL_i*V*D*U.transpose();
-
-			polarDecomposition(matL_i, R, U, D, V);
-			D(0, 0) = D(0, 0) > threshold ? 1.0 / D(0, 0) : 1.0;
-			D(1, 1) = D(1, 1) > threshold ? 1.0 / D(1, 1) : 1.0;
-			D(2, 2) = D(2, 2) > threshold ? 1.0 / D(2, 2) : 1.0;
-			invL_i = V*D*U.transpose();
-			invF_i = matK_i*V*D*U.transpose();
-
-// 			printf("F_i: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				F_i(0, 0), F_i(0, 1), F_i(0, 2),
-// 				F_i(1, 0), F_i(1, 1), F_i(1, 2),
-// 				F_i(2, 0), F_i(2, 1), F_i(2, 2));
-// 
-// 			printf("invF_i: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				invF_i(0, 0), invF_i(0, 1), invF_i(0, 2),
-// 				invF_i(1, 0), invF_i(1, 1), invF_i(1, 2),
-// 				invF_i(2, 0), invF_i(2, 1), invF_i(2, 2));
-
-			printf("matL_i: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-				matL_i(0, 0), matL_i(0, 1), matL_i(0, 2),
-				matL_i(1, 0), matL_i(1, 1), matL_i(1, 2),
-				matL_i(2, 0), matL_i(2, 1), matL_i(2, 2));
-
-			printf("matK_i: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-				matK_i(0, 0), matK_i(0, 1), matK_i(0, 2),
-				matK_i(1, 0), matK_i(1, 1), matK_i(1, 2),
-				matK_i(2, 0), matK_i(2, 1), matK_i(2, 2));
-		}*/
-
+		delete model;
 	}
 
 	template<typename TDataType>
 	bool HyperelasticityModule_test<TDataType>::initializeImpl()
 	{
 		m_F.resize(this->m_position.getElementCount());
-		m_invK.resize(this->m_position.getElementCount());
 		m_invF.resize(this->m_position.getElementCount());
-		m_invL.resize(this->m_position.getElementCount());
-		m_firstPiolaKirchhoffStress.resize(this->m_position.getElementCount());
+
+		m_eigenValues.resize(this->m_position.getElementCount());
+		m_Rot.resize(this->m_position.getElementCount());
+		m_volume.resize(this->m_position.getElementCount());
 
 		m_energy.resize(this->m_position.getElementCount());
 		m_gradient.resize(this->m_position.getElementCount());
+
+		y_pre.resize(this->m_position.getElementCount());
+		y_next.resize(this->m_position.getElementCount());
+
+		initializeVolume();
 
 		m_reduce = Reduction<Real>::Create(this->m_position.getElementCount());
 
 		return ElasticityModule::initializeImpl();
 	}
 
-	template<typename TDataType>
-	void HyperelasticityModule_test<TDataType>::solveElasticity()
+	template <typename Real>
+	__global__ void HM_InitVolume(
+		DeviceArray<Real> volume
+	) 
 	{
-		solveElasticityImplicit();
-		//solveElasticityExplicit();
-	}
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= volume.size()) return;
 
+		volume[pId] = Real(1);
+	}
+	
 
 	template<typename TDataType>
-	void HyperelasticityModule_test<TDataType>::solveElasticityExplicit()
+	void HyperelasticityModule_test<TDataType>::initializeVolume()
 	{
 		int numOfParticles = this->m_position.getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
-		this->m_displacement.reset();
-		this->m_weights.reset();
-
-		Log::sendMessage(Log::User, "*************solver start!!!***************");
-
-		/****************************************************************************************************/
-		//-test: compute the g-inverse deformation tensor & Piola-Kirchhoff tensor
+		HM_InitVolume << <pDims, BLOCK_SIZE >> > (m_volume);
+	}
 
 
-		// mass and volume are set 1.0, (need modified) 
-		Real mass = 1.0;
-		Real volume = 1.0;
-
-
-		/**************************** Jacobi method ************************************************/
-		// compute constants of the linear equations
-
-		// find out i-th particle's all neighbors and compute diagonal component D & remainder sparse matrix R
-
-		// find size_i: number of neighbors of i-th particle
-
-		// initialize y_now, y_next_iter
-		DeviceArray<Coord> y_pre(numOfParticles);
-		DeviceArray<Coord> y_next(numOfParticles);
-
-		Function1Pt::copy(y_pre, this->m_position.getValue());
-		Function1Pt::copy(y_next, this->m_position.getValue());
-		Function1Pt::copy(m_position_old, this->m_position.getValue());
-
-		// do Jacobi method Loop
-		bool convergeFlag = false; // converge or not
-		int iterCount = 0;
-
-		while (iterCount < 1) {
-
-			HM_ComputeFandInverse << <pDims, BLOCK_SIZE >> > (
-				m_invK,
-				m_invL,
-				m_F,
-				m_invF,
-				this->m_position.getValue(),
-				this->m_restShape.getValue(),
-				this->m_horizon.getValue());
-			cuSynchronize();
-
-			HM_ComputeFirstPiolaKirchhoff << <pDims, BLOCK_SIZE >> > (
-				m_firstPiolaKirchhoffStress,
-				m_F,
-				m_invF,
-				this->m_mu.getValue(),
-				this->m_lambda.getValue());
-			cuSynchronize();
-
-			// 			HM_JacobiStep << <pDims, BLOCK_SIZE >> > (
-			// 				y_next,
-			// 				y_pre,
-			// 				m_position_old,
-			// 				m_firstPiolaKirchhoffStress,
-			// 				m_invL,
-			// 				this->m_restShape.getValue(),
-			// 				this->m_horizon.getValue(),
-			// 				mass, volume, this->getParent()->getDt());
-
-			HM_JacobiStepExplicit << <pDims, BLOCK_SIZE >> > (
-				this->m_velocity.getValue(),
-				y_next,
-				y_pre,
-				m_position_old,
-				m_firstPiolaKirchhoffStress,
-				m_invK,
-				m_invL,
-				this->m_restShape.getValue(),
-				this->m_horizon.getValue(),
-				mass, volume, 
-				this->m_mu.getValue(),
-				this->m_lambda.getValue(),
-				this->getParent()->getDt());
-
-			Function1Pt::copy(y_pre, y_next);
-
-			iterCount++;
-		}
-
-		y_pre.release();
-		y_next.release();
+	template<typename TDataType>
+	void HyperelasticityModule_test<TDataType>::solveElasticity()
+	{
+		solveElasticityImplicit();
 	}
 
 	int ind_num = 0;
@@ -702,7 +497,7 @@ namespace Physika
 
 		grad[pId] = y_next[pId] - y_pre[pId];
 
-		printf("Thread ID %d: %f, %f, %f \n", pId, grad[pId][0], grad[pId][1], grad[pId][2]);
+//		printf("Thread ID %d: %f, %f, %f \n", pId, grad[pId][0], grad[pId][1], grad[pId][2]);
 	}
 
 	template <typename Real, typename Coord>
@@ -770,18 +565,9 @@ namespace Physika
 		int numOfParticles = this->m_position.getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
-		this->m_displacement.reset();
 		this->m_weights.reset();
 
 		Log::sendMessage(Log::User, "\n \n \n \n *************solver start!!!***************");
-
-		/****************************************************************************************************/
-		//-test: compute the g-inverse deformation tensor & Piola-Kirchhoff tensor
-
-
-		// mass and volume are set 1.0, (need modified) 
-		Real mass = 1.0;
-		Real volume = 1.0;
 
 		if (ind_num == 0)
 		{
@@ -789,18 +575,8 @@ namespace Physika
 			ind_num++;
 		}
 
-
 		/**************************** Jacobi method ************************************************/
-		// compute constants of the linear equations
-
-		// find out i-th particle's all neighbors and compute diagonal component D & remainder sparse matrix R
-
-		// find size_i: number of neighbors of i-th particle
-
 		// initialize y_now, y_next_iter
-		DeviceArray<Coord> y_pre(numOfParticles);
-		DeviceArray<Coord> y_next(numOfParticles);
-
 		Function1Pt::copy(y_pre, this->m_position.getValue());
 		Function1Pt::copy(y_next, this->m_position.getValue());
 		Function1Pt::copy(m_position_old, this->m_position.getValue());
@@ -811,131 +587,63 @@ namespace Physika
 
 		while (iterCount < 10) {
 
-			HM_ComputeFandInverse << <pDims, BLOCK_SIZE >> > (
-				m_invK,
-				m_invL,
+			HM_ComputeF << <pDims, BLOCK_SIZE >> > (
 				m_F,
-				m_invF,
+				m_eigenValues,
+				m_Rot,
 				y_pre,
 				this->m_restShape.getValue(),
 				this->m_horizon.getValue());
 			cuSynchronize();
 
-			HM_ComputeFirstPiolaKirchhoff << <pDims, BLOCK_SIZE >> > (
-				m_firstPiolaKirchhoffStress,
-				m_F,
-				m_invF,
-				this->m_mu.getValue(),
-				this->m_lambda.getValue());
+			HM_JacobiStep << <pDims, BLOCK_SIZE >> > (
+				y_next,
+				y_pre,
+				m_position_old,
+				m_Rot,
+				m_eigenValues,
+				this->m_restShape.getValue(),
+				this->m_horizon.getValue(),
+				m_volume, this->getParent()->getDt(),
+				m_energyType);
+
+			HM_ComputeGradient << <pDims, BLOCK_SIZE >> > (
+				m_gradient,
+				y_pre,
+				y_next);
 			cuSynchronize();
 
-			for (int subIter = 0; subIter < 1; subIter++)
+			//stepsize adjustment
 			{
-				HM_JacobiStep << <pDims, BLOCK_SIZE >> > (
-					y_next,
-					y_pre,
-					m_position_old,
-					m_firstPiolaKirchhoffStress,
-					m_F,
-					m_invF,
-					m_invL,
-					m_invK,
-					this->m_position.getValue(),
-					this->m_restShape.getValue(),
-					this->m_horizon.getValue(),
-					mass, volume, this->getParent()->getDt());
+				Real totalE_before;
+				Real totalE_current;
+				getEnergy(totalE_before, y_pre);
+				getEnergy(totalE_current, y_next);
 
+				printf("Previous: %f Next: %f \n", totalE_before, totalE_current);
 
-				HM_ComputeGradient << <pDims, BLOCK_SIZE >> > (
-					m_gradient,
-					y_pre, 
-					y_next);
-				cuSynchronize();
+				Real alpha = 1.0f;
+				int step = 0;
 
-
-				//stepsize adjustment
+				while (totalE_current > totalE_before + 100.0)
 				{
-
-					Real totalE_before;
-					Real totalE_current;
-					getEnergy(totalE_before, y_pre);
-					getEnergy(totalE_current, y_next);
+					step++;
+					alpha *= 0.5;
 					
-					Real alpha = 1.0f;
+					printf("Previous: %f Next: %f \n", totalE_before, totalE_current);
+					printf("Iteration %d Step %d alpha: %f \n", iterCount, step, alpha);
 
-					while (totalE_current > totalE_before + 100.0)
-					{
-						printf("alpha: %f \n", alpha);
-
-						alpha *= 0.5;
-
-						HM_ComputeCurrentPosition << <pDims, BLOCK_SIZE >> > (
-							m_gradient,
-							y_pre,
-							y_next,
-							alpha);
-
-						getEnergy(totalE_current, y_next);
-					}
-
-
-					/*
-					HM_Compute1DEnergy << <pDims, BLOCK_SIZE >> > (
-						m_energy,
-						m_position_old,
+					HM_ComputeCurrentPosition << <pDims, BLOCK_SIZE >> > (
+						m_gradient,
 						y_pre,
-						this->m_restShape.getValue(),
-						this->m_horizon.getValue(),
-						this->m_mu.getValue(),
-						this->m_lambda.getValue());
-
-					Real totalE_before = m_reduce->accumulate(m_energy.getDataPtr(), m_energy.size());
-
-					HM_Compute1DEnergy << <pDims, BLOCK_SIZE >> > (
-						m_energy,
-						m_position_old,
 						y_next,
-						this->m_restShape.getValue(),
-						this->m_horizon.getValue(),
-						this->m_mu.getValue(),
-						this->m_lambda.getValue());
+						alpha);
 
-					Real totalE_current = m_reduce->accumulate(m_energy.getDataPtr(), m_energy.size());
-
-					Real low_limit = 0.0f;
-					Real upper_limit = 1.0f;
-					Real alpha = 1.0f;
-
-					while (totalE_current > totalE_before + 100.0)
-					{
-						printf("alpha: %f \n", alpha);
-
-						alpha *= 0.5;
-
-						HM_ComputeCurrentPosition << <pDims, BLOCK_SIZE >> > (
-							m_gradient,
-							y_pre,
-							y_next,
-							alpha);
-
-						HM_Compute1DEnergy << <pDims, BLOCK_SIZE >> > (
-							m_energy,
-							m_position_old,
-							y_next,
-							this->m_restShape.getValue(),
-							this->m_horizon.getValue(),
-							this->m_mu.getValue(),
-							this->m_lambda.getValue());
-
-						totalE_current = m_reduce->accumulate(m_energy.getDataPtr(), m_energy.size());
-					}*/
-
-
-					Function1Pt::copy(y_pre, y_next);
+					getEnergy(totalE_current, y_next);
 				}
-			}
 
-//			Function1Pt::copy(y_pre, y_next);
+				Function1Pt::copy(y_pre, y_next);
+			}
 
 			iterCount++;
 		}
@@ -947,9 +655,6 @@ namespace Physika
 			m_position_old,
 			this->getParent()->getDt());
 		cuSynchronize();
-
-		y_pre.release();
-		y_next.release();
 	}
 
 
@@ -960,49 +665,43 @@ namespace Physika
 	}
 
 
-	template <typename Real, typename Matrix>
+	template <typename Real, typename Coord, typename Matrix>
 	__global__ void HM_ComputeEnergy(
 		DeviceArray<Real> energy,
-		DeviceArray<Matrix> F,
-		Real mu,
-		Real lambda)
+		DeviceArray<Coord> eigens,
+		EnergyType type)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= energy.size()) return;
 
-		Matrix F_i = F[pId];
-		Matrix E_i = F_i*F_i.transpose()- Matrix::identityMatrix();
-		Real trE_i = E_i(0, 0) + E_i(1, 1) + E_i(2, 2);
-		Matrix EE_i = E_i*E_i;
-		Real trEE_i = EE_i(0, 0) + EE_i(1, 1) + EE_i(2, 2);
+		HyperelasticityModel<Real, Matrix>* model = getElasticityModel<Real, Matrix>(type);
 
-		energy[pId] = 0.5*lambda*trE_i*trE_i + mu*trEE_i;
+		Coord eigen_i = eigens[pId];
+
+		energy[pId] = model->getEnergy(eigen_i[0], eigen_i[1], eigen_i[2]);
+
+		delete model;
 	}
 
 	template<typename TDataType>
-	void HyperelasticityModule_test<TDataType>::getEnergy(Real& totalEnergy, DeviceArray<Coord> position)
+	void HyperelasticityModule_test<TDataType>::getEnergy(Real& totalEnergy, DeviceArray<Coord>& position)
 	{
 		int numOfParticles = this->m_position.getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
-		HM_ComputeFandInverse << <pDims, BLOCK_SIZE >> > (
-			m_invK,
-			m_invL,
+		HM_ComputeF << <pDims, BLOCK_SIZE >> > (
 			m_F,
-			m_invF,
+			m_eigenValues,
+			m_Rot,
 			position,
 			this->m_restShape.getValue(),
 			this->m_horizon.getValue());
-		cuSynchronize();
 
-		m_mu.setValue(Real(48000));
-		m_lambda.setValue(Real(0));
-
-		HM_ComputeEnergy << <pDims, BLOCK_SIZE >> > (
+		HM_ComputeEnergy <Real, Coord, Matrix> << <pDims, BLOCK_SIZE >> > (
 			m_energy,
-			m_F,
-			m_mu.getValue(),
-			m_lambda.getValue());
+			m_eigenValues,
+			m_energyType);
+		cuSynchronize();
 
 		totalEnergy = m_reduce->accumulate(m_energy.getDataPtr(), m_energy.size());
 	}
