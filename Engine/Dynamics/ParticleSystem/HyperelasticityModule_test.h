@@ -70,7 +70,8 @@ namespace Physika {
 	enum EnergyType
 	{
 		StVK,
-		NeoHooekean
+		NeoHooekean,
+		Polynomial
 	};
 
 	template<typename Real, typename Matrix>
@@ -188,7 +189,197 @@ namespace Physika {
 		Real s1;
 	};
 
+	template<typename Real, typename Matrix, int n>
+	class PolynomialModel : public HyperelasticityModel<Real, Matrix>
+	{
+	public:
+		COMM_FUNC PolynomialModel() : HyperelasticityModel<Real, Matrix>()
+		{
+			density = Real(1);
+			
+			for (int i = 0; i <= n; i++)
+			{
+				for (int j = 0; j <= n; j++)
+				{
+					C[i][j] = Real(12000);
+				}
+			}
+		}
 
+		COMM_FUNC virtual Real getEnergy(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Real sq1 = lambda1*lambda1;
+			Real sq2 = lambda2*lambda2;
+			Real sq3 = lambda3*lambda3;
+			Real I1 = sq1 + sq2 + sq3;
+			Real I2 = sq1*sq2 + sq2*sq3 + sq3*sq1;
+
+			Real totalE = Real(0);
+			for (int i = 0; i <= n; i++)
+			{
+				for (int j = 0; j <= n; j++)
+				{
+					totalE += C[i][j] * pow(I1 - 3, Real(i))*pow(I2 - 3, Real(j));
+				}
+			}
+
+			return totalE;
+		}
+
+		COMM_FUNC virtual Matrix getStressTensorPositive(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Real sq1 = lambda1*lambda1;
+			Real sq2 = lambda2*lambda2;
+			Real sq3 = lambda3*lambda3;
+			Real I1 = sq1 + sq2 + sq3;
+			Real I2 = sq1*sq2 + sq2*sq3 + sq3*sq1;
+
+			Real D1 = Real(0);
+			Real D2 = Real(0);
+			Real D3 = Real(0);
+			for (int i = 0; i <= n; i++)
+			{
+				for (int j = 0; j <= n; j++)
+				{
+					int i_minus_one = i - 1 < 0 ? 0 : i - 1;
+					int j_minus_one = j - 1 < 0 ? 0 : j - 1;
+
+					int i_minus_one_even = 2 * floor(i_minus_one / 2);
+					int j_minus_one_even = 2 * floor(j_minus_one / 2);
+					int i_even = 2 * floor(i / 2);
+					int j_even = 2 * floor(j / 2);
+
+					Real C1_positive;
+					if (i_minus_one_even == i_minus_one && j_even == j)
+					{
+						C1_positive = Real(1);
+					}
+					else if (i_minus_one_even != i_minus_one && j_even == j)
+					{
+						C1_positive = I1;
+					}
+					else if (i_minus_one_even == i_minus_one && j_even != j)
+					{
+						C1_positive = I2;
+					}
+					else
+					{
+						C1_positive = I1*I2 + 9;
+					}
+
+					Real C2_positive;
+					if (i_even == i && j_minus_one_even == j_minus_one)
+					{
+						C2_positive = Real(1);
+					}
+					else if (i_even != i && j_minus_one_even == j_minus_one)
+					{
+						C2_positive = I1;
+					}
+					else if (i_even == i && j_minus_one_even != j_minus_one)
+					{
+						C2_positive = I2;
+					}
+					else
+					{
+						C2_positive = I1*I2 + 9;
+					}
+					
+					int exp_i = i < 0 ? 1 : i;
+					int exp_j = j < 0 ? 1 : j;
+					D1 += 2 * exp_i * C[i][j] * pow(I1 - 3, Real(i_minus_one_even))*pow(I2 - 3, Real(j_even)) * C1_positive + 4 * exp_j * C[i][j] * pow(I1 - 3, Real(i_even))*pow(I2 - 3, Real(j_minus_one_even))*C2_positive*sq1;
+					D2 += 2 * exp_i * C[i][j] * pow(I1 - 3, Real(i_minus_one_even))*pow(I2 - 3, Real(j_even)) * C1_positive + 4 * exp_j * C[i][j] * pow(I1 - 3, Real(i_even))*pow(I2 - 3, Real(j_minus_one_even))*C2_positive*sq2;
+					D3 += 2 * exp_i * C[i][j] * pow(I1 - 3, Real(i_minus_one_even))*pow(I2 - 3, Real(j_even)) * C1_positive + 4 * exp_j * C[i][j] * pow(I1 - 3, Real(i_even))*pow(I2 - 3, Real(j_minus_one_even))*C2_positive*sq3;
+
+				}
+			}
+
+			Matrix D;
+			D(0, 0) = D1;
+			D(1, 1) = D2;
+			D(2, 2) = D3;
+
+			return D;
+		}
+
+		COMM_FUNC virtual Matrix getStressTensorNegative(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Real sq1 = lambda1*lambda1;
+			Real sq2 = lambda2*lambda2;
+			Real sq3 = lambda3*lambda3;
+			Real I1 = sq1 + sq2 + sq3;
+			Real I2 = sq1*sq2 + sq2*sq3 + sq3*sq1;
+
+			Real D1 = Real(0);
+			Real D2 = Real(0);
+			Real D3 = Real(0);
+			for (int i = 0; i <= n; i++)
+			{
+				for (int j = 0; j <= n; j++)
+				{
+					int i_minus_one = i - 1 < 0 ? 0 : i - 1;
+					int j_minus_one = j - 1 < 0 ? 0 : j - 1;
+
+					int i_minus_one_even = 2 * floor(i_minus_one / 2);
+					int j_minus_one_even = 2 * floor(j_minus_one / 2);
+					int i_even = 2 * floor(i / 2);
+					int j_even = 2 * floor(j / 2);
+
+					Real C1_positive;
+					if (i_minus_one_even == i_minus_one && j_even == j)
+					{
+						C1_positive = 0;
+					}
+					else if (i_minus_one_even != i_minus_one && j_even == j)
+					{
+						C1_positive = 3;
+					}
+					else if (i_minus_one_even == i_minus_one && j_even != j)
+					{
+						C1_positive = 3;
+					}
+					else
+					{
+						C1_positive = 3 * I1 + 3 * I2;
+					}
+
+					Real C2_positive;
+					if (i_even == i && j_minus_one_even == j_minus_one)
+					{
+						C2_positive = 0;
+					}
+					else if (i_even != i && j_minus_one_even == j_minus_one)
+					{
+						C2_positive = 3;
+					}
+					else if (i_even == i && j_minus_one_even != j_minus_one)
+					{
+						C2_positive = 3;
+					}
+					else
+					{
+						C2_positive = 3 * I1 + 3 * I2;
+					}
+
+					int exp_i = i < 0 ? 1 : i;
+					int exp_j = j < 0 ? 1 : j;
+					D1 += 2 * exp_i * C[i][j] * pow(I1 - 3, Real(i_minus_one_even))*pow(I2 - 3, Real(j_even)) * C1_positive + 4 * exp_j * C[i][j] * pow(I1 - 3, Real(i_even))*pow(I2 - 3, Real(j_minus_one_even))*C2_positive*sq1;
+					D2 += 2 * exp_i * C[i][j] * pow(I1 - 3, Real(i_minus_one_even))*pow(I2 - 3, Real(j_even)) * C1_positive + 4 * exp_j * C[i][j] * pow(I1 - 3, Real(i_even))*pow(I2 - 3, Real(j_minus_one_even))*C2_positive*sq2;
+					D3 += 2 * exp_i * C[i][j] * pow(I1 - 3, Real(i_minus_one_even))*pow(I2 - 3, Real(j_even)) * C1_positive + 4 * exp_j * C[i][j] * pow(I1 - 3, Real(i_even))*pow(I2 - 3, Real(j_minus_one_even))*C2_positive*sq3;
+
+				}
+			}
+
+			Matrix D;
+			D(0, 0) = D1;
+			D(1, 1) = D2;
+			D(2, 2) = D3;
+
+			return D;
+		}
+
+		Real C[n+1][n+1];
+	};
 
 	template<typename TDataType>
 	class HyperelasticityModule_test : public ElasticityModule<TDataType>

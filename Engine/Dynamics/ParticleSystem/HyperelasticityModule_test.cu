@@ -20,6 +20,8 @@ namespace Physika
 			return new StVKModel<Real, Matrix>();
 		case NeoHooekean:
 			return new NeoHookeanModel<Real, Matrix>();
+		case Polynomial:
+			return new PolynomialModel<Real, Matrix, 1>();
 		default:
 			break;
 		}
@@ -28,7 +30,7 @@ namespace Physika
 	template<typename TDataType>
 	HyperelasticityModule_test<TDataType>::HyperelasticityModule_test()
 		: ElasticityModule<TDataType>()
-		, m_energyType(NeoHooekean)
+		, m_energyType(Polynomial)
 	{
 	}
 
@@ -113,7 +115,7 @@ namespace Physika
 
 		polarDecomposition(F[pId], R, U, D, V);
 
-		eigens[pId] = Coord(clamp(D(0, 0), Real(0.01), Real(20)), clamp(D(1, 1), Real(0.01), Real(20)), clamp(D(2, 2), Real(0.01), Real(20)));
+		eigens[pId] = Coord(clamp(D(0, 0), Real(0.01), Real(100)), clamp(D(1, 1), Real(0.01), Real(100)), clamp(D(2, 2), Real(0.01), Real(100)));
 		RU[pId] = U;
 	}
 
