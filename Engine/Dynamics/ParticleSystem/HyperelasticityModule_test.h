@@ -69,8 +69,8 @@ namespace Physika {
 
 	enum EnergyType
 	{
-		Linear,
-		Quadratic
+		StVK,
+		NeoHooekean
 	};
 
 	template<typename Real, typename Matrix>
@@ -93,8 +93,8 @@ namespace Physika {
 		COMM_FUNC StVKModel() : HyperelasticityModel<Real, Matrix>()
 		{
 			density = Real(1);
-			mu = Real(48000);
-			lambda = Real(12000);
+			s1 = Real(48000);
+			s0 = Real(12000);
 		}
 
 		COMM_FUNC virtual Real getEnergy(Real lambda1, Real lambda2, Real lambda3) override
@@ -104,16 +104,16 @@ namespace Physika {
 			Real sq2 = lambda2*lambda2;
 			Real sq3 = lambda3*lambda3;
 			Real II = sq1*sq1 + sq2*sq2 + sq3*sq3;
-			return 0.5*lambda*(I - 3)*(I - 3) + 0.25*mu*(II - 2 * I + 3);
+			return 0.5*s0*(I - 3)*(I - 3) + 0.25*s1*(II - 2 * I + 3);
 		}
 
 		COMM_FUNC virtual Matrix getStressTensorPositive(Real lambda1, Real lambda2, Real lambda3) override
 		{
 			Real I = lambda1*lambda1 + lambda2*lambda2 + lambda3*lambda3;
 
-			Real D1 = 2 * lambda*I + mu*lambda1*lambda1;
-			Real D2 = 2 * lambda*I + mu*lambda2*lambda2;
-			Real D3 = 2 * lambda*I + mu*lambda3*lambda3;
+			Real D1 = 2 * s0*I + s1*lambda1*lambda1;
+			Real D2 = 2 * s0*I + s1*lambda2*lambda2;
+			Real D3 = 2 * s0*I + s1*lambda3*lambda3;
 
 			Matrix D;
 			D(0, 0) = D1;
@@ -124,12 +124,68 @@ namespace Physika {
 
 		COMM_FUNC virtual Matrix getStressTensorNegative(Real lambda1, Real lambda2, Real lambda3) override
 		{
-			Matrix D = (6 * lambda + mu)*Matrix::identityMatrix();
+			Matrix D = (6 * s0 + s1)*Matrix::identityMatrix();
 			return D;
 		}
 
-		Real lambda;
-		Real mu;
+		Real s0;
+		Real s1;
+	};
+
+	template<typename Real, typename Matrix>
+	class NeoHookeanModel : public HyperelasticityModel<Real, Matrix>
+	{
+	public:
+		COMM_FUNC NeoHookeanModel() : HyperelasticityModel<Real, Matrix>()
+		{
+			density = Real(1);
+			s1 = Real(48000);
+			s0 = Real(12000);
+		}
+
+		COMM_FUNC virtual Real getEnergy(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Real I = lambda1*lambda1+lambda2*lambda2+lambda3*lambda3;
+			Real sqrtIII = lambda1*lambda2*lambda3;
+			return s0*(I-3-2*log(sqrtIII))+s1*(sqrtIII-1)*(sqrtIII - 1);
+		}
+
+		COMM_FUNC virtual Matrix getStressTensorPositive(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Real sq1 = lambda1*lambda1;
+			Real sq2 = lambda2*lambda2;
+			Real sq3 = lambda3*lambda3;
+
+			Real D1 = 2 * s0 + 2 * s1*sq2*sq3;
+			Real D2 = 2 * s0 + 2 * s1*sq3*sq1;
+			Real D3 = 2 * s0 + 2 * s1*sq1*sq2;
+
+			Matrix D;
+			D(0, 0) = D1;
+			D(1, 1) = D2;
+			D(2, 2) = D3;
+			return D;
+		}
+
+		COMM_FUNC virtual Matrix getStressTensorNegative(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Real sqrtIII = 1/(lambda1*lambda2*lambda3);
+			Real constIII = s0*sqrtIII*sqrtIII + s1*sqrtIII;
+
+			Real sq1 = lambda1*lambda1;
+			Real sq2 = lambda2*lambda2;
+			Real sq3 = lambda3*lambda3;
+
+			Matrix D;
+			D(0, 0) = 2*sq2*sq3*constIII;
+			D(1, 1) = 2*sq3*sq1*constIII;
+			D(2, 2) = 2*sq1*sq2*constIII;
+
+			return D;
+		}
+
+		Real s0;
+		Real s1;
 	};
 
 

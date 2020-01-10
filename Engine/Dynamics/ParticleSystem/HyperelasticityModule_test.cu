@@ -16,10 +16,10 @@ namespace Physika
 	{
 		switch (type)
 		{
-		case Linear:
+		case StVK:
 			return new StVKModel<Real, Matrix>();
-		case Quadratic:
-			return NULL;
+		case NeoHooekean:
+			return new NeoHookeanModel<Real, Matrix>();
 		default:
 			break;
 		}
@@ -28,7 +28,7 @@ namespace Physika
 	template<typename TDataType>
 	HyperelasticityModule_test<TDataType>::HyperelasticityModule_test()
 		: ElasticityModule<TDataType>()
-		, m_energyType(Linear)
+		, m_energyType(NeoHooekean)
 	{
 	}
 
@@ -113,7 +113,7 @@ namespace Physika
 
 		polarDecomposition(F[pId], R, U, D, V);
 
-		eigens[pId] = Coord(D(0, 0), D(1, 1), D(2, 2));
+		eigens[pId] = Coord(clamp(D(0, 0), Real(0.01), Real(20)), clamp(D(1, 1), Real(0.01), Real(20)), clamp(D(2, 2), Real(0.01), Real(20)));
 		RU[pId] = U;
 	}
 
@@ -358,8 +358,8 @@ namespace Physika
 		Real lambda_i2 = eigen[pId][1];
 		Real lambda_i3 = eigen[pId][2];
 
-		Matrix PK1_i = Rot[pId] * model->getStressTensorPositive(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
-		Matrix PK2_i = model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3);
+		Matrix PK1_i = Rot[pId]*model->getStressTensorPositive(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
+		Matrix PK2_i = Rot[pId]*model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
 
 		Real V_i = volume[pId];
 
@@ -394,7 +394,7 @@ namespace Physika
 				Real lambda_j3 = eigen[j][2];
 
 				Matrix PK1_ij = PK1_i + Rot[j]*model->getStressTensorPositive(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
-				Matrix PK2_ij = PK2_i + model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3);
+				Matrix PK2_ij = PK2_i + Rot[j]*model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
 
 				Coord y_pre_ij = (y_pre_i - y_pre_j);
 				source_i += sw_ij*PK1_ij*y_pre_j + sw_ij*PK2_ij*y_pre_ij;
@@ -472,7 +472,7 @@ namespace Physika
 		if (pId >= position.size()) return;
 
 		Matrix rotM(0);
-		float theta = 3.1415926 / 6.0f;
+		float theta = 3.1415926 / 4.0f;
 		rotM(0, 0) = cos(theta);
 		rotM(0, 1) = -sin(theta);
 		rotM(1, 0) = sin(theta);
