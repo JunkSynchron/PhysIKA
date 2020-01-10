@@ -71,7 +71,8 @@ namespace Physika {
 	{
 		StVK,
 		NeoHooekean,
-		Polynomial
+		Polynomial,
+		Xuetal
 	};
 
 	template<typename Real, typename Matrix>
@@ -379,6 +380,50 @@ namespace Physika {
 		}
 
 		Real C[n+1][n+1];
+	};
+
+
+	template<typename Real, typename Matrix>
+	class XuModel : public HyperelasticityModel<Real, Matrix>
+	{
+	public:
+		COMM_FUNC XuModel() : HyperelasticityModel<Real, Matrix>()
+		{
+			density = Real(1);
+			s0 = Real(12000);
+		}
+
+		COMM_FUNC virtual Real getEnergy(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Real sq1 = lambda1*lambda1;
+			Real sq2 = lambda2*lambda2;
+			Real sq3 = lambda3*lambda3;
+			Real E1 = ((sq1*sq1 - 1) / 4 + (1 / sq1 - 1) / 2) / 3;
+			Real E2 = ((sq2*sq2 - 1) / 4 + (1 / sq2 - 1) / 2) / 3;
+			Real E3 = ((sq3*sq3 - 1) / 4 + (1 / sq3 - 1) / 2) / 3;
+
+			return s0*(E1 + E2 + E3);
+		}
+
+		COMM_FUNC virtual Matrix getStressTensorPositive(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Matrix D;
+			D(0, 0) = s0*(lambda1*lambda1) / 3;
+			D(1, 1) = s0*(lambda2*lambda2) / 3;
+			D(2, 2) = s0*(lambda3*lambda3) / 3;
+			return D;
+		}
+
+		COMM_FUNC virtual Matrix getStressTensorNegative(Real lambda1, Real lambda2, Real lambda3) override
+		{
+			Matrix D;
+			D(0, 0) = s0 / (lambda1*lambda1*lambda1*lambda1) / 3;
+			D(1, 1) = s0 / (lambda2*lambda2*lambda2*lambda2) / 3;
+			D(2, 2) = s0 / (lambda3*lambda3*lambda3*lambda3) / 3;
+			return D;
+		}
+
+		Real s0;
 	};
 
 	template<typename TDataType>

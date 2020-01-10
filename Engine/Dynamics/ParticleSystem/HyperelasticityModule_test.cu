@@ -22,6 +22,8 @@ namespace Physika
 			return new NeoHookeanModel<Real, Matrix>();
 		case Polynomial:
 			return new PolynomialModel<Real, Matrix, 1>();
+		case Xuetal:
+			return new XuModel<Real, Matrix>();
 		default:
 			break;
 		}
@@ -30,7 +32,7 @@ namespace Physika
 	template<typename TDataType>
 	HyperelasticityModule_test<TDataType>::HyperelasticityModule_test()
 		: ElasticityModule<TDataType>()
-		, m_energyType(Polynomial)
+		, m_energyType(Xuetal)
 	{
 	}
 
