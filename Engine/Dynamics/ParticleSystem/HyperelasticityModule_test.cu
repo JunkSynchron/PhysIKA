@@ -430,6 +430,7 @@ namespace Physika
 
 		y_pre.resize(this->m_position.getElementCount());
 		y_next.resize(this->m_position.getElementCount());
+		y_current.resize(this->m_position.getElementCount());
 
 		initializeVolume();
 
@@ -563,6 +564,21 @@ namespace Physika
 		energy[pId] = totalEnergy;
 	}
 
+	template <typename Coord>
+	__global__ void HM_Chebyshev_Acceleration(DeviceArray<Coord> next_X, DeviceArray<Coord> X, DeviceArray<Coord> prev_X, float omega)
+	{
+		int i = blockDim.x * blockIdx.x + threadIdx.x;
+		if (i >= prev_X.size())	return;
+
+		next_X[i * 3 + 0] = (next_X[i * 3 + 0] - X[i * 3 + 0])*0.666 + X[i * 3 + 0];
+		next_X[i * 3 + 1] = (next_X[i * 3 + 1] - X[i * 3 + 1])*0.666 + X[i * 3 + 1];
+		next_X[i * 3 + 2] = (next_X[i * 3 + 2] - X[i * 3 + 2])*0.666 + X[i * 3 + 2];
+
+		next_X[i * 3 + 0] = omega*(next_X[i * 3 + 0] - prev_X[i * 3 + 0]) + prev_X[i * 3 + 0];
+		next_X[i * 3 + 1] = omega*(next_X[i * 3 + 1] - prev_X[i * 3 + 1]) + prev_X[i * 3 + 1];
+		next_X[i * 3 + 2] = omega*(next_X[i * 3 + 2] - prev_X[i * 3 + 2]) + prev_X[i * 3 + 2];
+	}
+
 	template<typename TDataType>
 	void HyperelasticityModule_test<TDataType>::solveElasticityImplicit()
 	{
@@ -582,6 +598,7 @@ namespace Physika
 		/**************************** Jacobi method ************************************************/
 		// initialize y_now, y_next_iter
 		Function1Pt::copy(y_pre, this->m_position.getValue());
+		Function1Pt::copy(y_current, this->m_position.getValue());
 		Function1Pt::copy(y_next, this->m_position.getValue());
 		Function1Pt::copy(m_position_old, this->m_position.getValue());
 
@@ -589,20 +606,21 @@ namespace Physika
 		bool convergeFlag = false; // converge or not
 		int iterCount = 0;
 
-		while (iterCount < 10) {
+		Real omega;
+		while (iterCount < 20) {
 
 			HM_ComputeF << <pDims, BLOCK_SIZE >> > (
 				m_F,
 				m_eigenValues,
 				m_Rot,
-				y_pre,
+				y_current,
 				this->m_restShape.getValue(),
 				this->m_horizon.getValue());
 			cuSynchronize();
 
 			HM_JacobiStep << <pDims, BLOCK_SIZE >> > (
 				y_next,
-				y_pre,
+				y_current,
 				m_position_old,
 				m_Rot,
 				m_eigenValues,
@@ -613,41 +631,53 @@ namespace Physika
 
 			HM_ComputeGradient << <pDims, BLOCK_SIZE >> > (
 				m_gradient,
-				y_pre,
+				y_current,
 				y_next);
 			cuSynchronize();
 
 			//stepsize adjustment
+			Real totalE_before;
+			Real totalE_current;
+			getEnergy(totalE_before, y_current);
+			getEnergy(totalE_current, y_next);
+
+			printf("Previous: %f Next: %f \n", totalE_before, totalE_current);
+
+			Real alpha = 1.0f;
+			int step = 0;
+
+			while (totalE_current > totalE_before + 100.0)
 			{
-				Real totalE_before;
-				Real totalE_current;
-				getEnergy(totalE_before, y_pre);
-				getEnergy(totalE_current, y_next);
+				step++;
+				alpha *= 0.5;
 
 				printf("Previous: %f Next: %f \n", totalE_before, totalE_current);
+				printf("Iteration %d Step %d alpha: %f \n", iterCount, step, alpha);
 
-				Real alpha = 1.0f;
-				int step = 0;
+				HM_ComputeCurrentPosition << <pDims, BLOCK_SIZE >> > (
+					m_gradient,
+					y_current,
+					y_next,
+					alpha);
 
-				while (totalE_current > totalE_before + 100.0)
-				{
-					step++;
-					alpha *= 0.5;
-					
-					printf("Previous: %f Next: %f \n", totalE_before, totalE_current);
-					printf("Iteration %d Step %d alpha: %f \n", iterCount, step, alpha);
-
-					HM_ComputeCurrentPosition << <pDims, BLOCK_SIZE >> > (
-						m_gradient,
-						y_pre,
-						y_next,
-						alpha);
-
-					getEnergy(totalE_current, y_next);
-				}
-
-				Function1Pt::copy(y_pre, y_next);
+				getEnergy(totalE_current, y_next);
 			}
+
+			if (bChebyshevAccOn)
+			{
+				if (step <= 10)		omega = 1;
+				else if (step == 11)	omega = 2 / (2 - rho*rho);
+				else	omega = 4 / (4 - rho*rho*omega);
+
+				HM_Chebyshev_Acceleration << <pDims, BLOCK_SIZE >> > (
+					y_next,
+					y_current,
+					y_pre,
+					omega);
+			}
+
+			Function1Pt::copy(y_pre, y_current);
+			Function1Pt::copy(y_current, y_next);
 
 			iterCount++;
 		}
