@@ -5,7 +5,6 @@ namespace Physika
 {
 	template<typename> class ElasticityModule;
 	template<typename> class PointSetToPointSet;
-	class SurfaceMeshRender;
 
 	/*!
 	*	\class	ParticleElasticBody
@@ -35,7 +34,7 @@ namespace Physika
 
 		std::shared_ptr<PointSetToPointSet<TDataType>> getTopologyMapping();
 
-		std::shared_ptr<SurfaceMeshRender> getSurfaceRender() { return m_surfaceRender; }
+		std::shared_ptr<Node> getSurfaceNode() { return m_surfaceNode; }
 
 		void loadParticles_randomOffset(Coord lo, Coord hi, Real distance, Real offset_rate);
 
@@ -44,7 +43,6 @@ namespace Physika
 
 	private:
 		std::shared_ptr<Node> m_surfaceNode;
-		std::shared_ptr<SurfaceMeshRender> m_surfaceRender;
 	};
 
 #ifdef PRECISION_FLOAT

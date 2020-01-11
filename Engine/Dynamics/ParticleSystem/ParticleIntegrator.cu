@@ -49,13 +49,13 @@ namespace Physika
 	__global__ void K_UpdateVelocity(
 		DeviceArray<Coord> vel,
 		DeviceArray<Coord> forceDensity,
-		Real gravity,
+		Coord gravity,
 		Real dt)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= forceDensity.size()) return;
 
-		vel[pId] += dt * (forceDensity[pId] + Coord(0, gravity, 0));
+		vel[pId] += dt * (forceDensity[pId] + gravity);
 	}
 
 	template<typename Real, typename Coord>
@@ -103,7 +103,7 @@ namespace Physika
 	bool ParticleIntegrator<TDataType>::updateVelocity()
 	{
 		Real dt = getParent()->getDt();
-		Real gravity = SceneGraph::getInstance().getGravity();
+		Coord gravity = SceneGraph::getInstance().getGravity();
 		cuint pDims = cudaGridSize(m_position.getReference()->size(), BLOCK_SIZE);
 
 		if (!exit_gravity) { gravity = Real(0.0); }
