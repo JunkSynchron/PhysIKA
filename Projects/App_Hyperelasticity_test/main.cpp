@@ -16,6 +16,8 @@
 #include "Dynamics/ParticleSystem/HyperelasticityModule.h"
 #include "Dynamics/ParticleSystem/HyperelasticityModule_test.h"
 #include "Rendering/SurfaceMeshRender.h"
+#include "Rendering/PointRenderModule.h"
+
 
 using namespace std;
 using namespace Physika;
@@ -40,14 +42,14 @@ void CreateScene()
 {
 	SceneGraph& scene = SceneGraph::getInstance();
 
-	scene.setGravity(-9.8f);
+	scene.setGravity(Vector3f(0, -9.8, 0));
 
 	std::shared_ptr<StaticBoundary<DataType3f>> root = scene.createNewScene<StaticBoundary<DataType3f>>();
 	root->loadCube(Vector3f(0), Vector3f(1.0), 0.005, true);
 
 	std::shared_ptr<ParticleElasticBody<DataType3f>> child3 = std::make_shared<ParticleElasticBody<DataType3f>>();
 	root->addParticleSystem(child3);
-	child3->getRenderModule()->setColor(Vector3f(0, 1, 1));
+//	child3->getRenderModule()->setColor(Vector3f(0, 1, 1));
 	child3->setMass(1.0);
 //   	child3->loadParticles("../Media/bunny/bunny_points.obj");
 //   	child3->loadSurface("../Media/bunny/bunny_mesh.obj");
@@ -59,8 +61,13 @@ void CreateScene()
 	hyper_test->setMu(1200);
 	hyper_test->setLambda(400);
 	child3->setElasticitySolver(hyper_test);
-	child3->getSurfaceRender()->setColor(Vector3f(1, 1, 0));
+//	child3->getSurfaceRender()->setColor(Vector3f(1, 1, 0));
 	child3->getElasticitySolver()->setIterationNumber(10);
+
+	auto ptRender = std::make_shared<PointRenderModule>();
+	ptRender->setColor(Vector3f(1, 0, 0));
+	ptRender->setColorRange(0, 4);
+	child3->addVisualModule(ptRender);
 
 	/*
 	std::shared_ptr<ParticleElasticBody<DataType3f>> child4 = std::make_shared<ParticleElasticBody<DataType3f>>();
