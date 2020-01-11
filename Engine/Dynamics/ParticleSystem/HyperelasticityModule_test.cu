@@ -32,7 +32,7 @@ namespace Physika
 	template<typename TDataType>
 	HyperelasticityModule_test<TDataType>::HyperelasticityModule_test()
 		: ElasticityModule<TDataType>()
-		, m_energyType(Xuetal)
+		, m_energyType(StVK)
 	{
 	}
 
@@ -508,14 +508,14 @@ namespace Physika
 	template <typename Real, typename Coord>
 	__global__ void HM_ComputeCurrentPosition(
 		DeviceArray<Coord> grad,
-		DeviceArray<Coord> y_pre,
+		DeviceArray<Coord> y_current,
 		DeviceArray<Coord> y_next,
 		Real alpha)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= y_next.size()) return;
 
-		y_next[pId] = y_pre[pId] + alpha*grad[pId];
+		y_next[pId] = y_current[pId] + alpha*grad[pId];
 	}
 
 	template <typename Real, typename Coord, typename NPair>
@@ -567,16 +567,12 @@ namespace Physika
 	template <typename Coord>
 	__global__ void HM_Chebyshev_Acceleration(DeviceArray<Coord> next_X, DeviceArray<Coord> X, DeviceArray<Coord> prev_X, float omega)
 	{
-		int i = blockDim.x * blockIdx.x + threadIdx.x;
-		if (i >= prev_X.size())	return;
+		int pId = blockDim.x * blockIdx.x + threadIdx.x;
+		if (pId >= prev_X.size())	return;
 
-		next_X[i * 3 + 0] = (next_X[i * 3 + 0] - X[i * 3 + 0])*0.666 + X[i * 3 + 0];
-		next_X[i * 3 + 1] = (next_X[i * 3 + 1] - X[i * 3 + 1])*0.666 + X[i * 3 + 1];
-		next_X[i * 3 + 2] = (next_X[i * 3 + 2] - X[i * 3 + 2])*0.666 + X[i * 3 + 2];
+		next_X[pId] = (next_X[pId] - X[pId])*0.666 + X[pId];
 
-		next_X[i * 3 + 0] = omega*(next_X[i * 3 + 0] - prev_X[i * 3 + 0]) + prev_X[i * 3 + 0];
-		next_X[i * 3 + 1] = omega*(next_X[i * 3 + 1] - prev_X[i * 3 + 1]) + prev_X[i * 3 + 1];
-		next_X[i * 3 + 2] = omega*(next_X[i * 3 + 2] - prev_X[i * 3 + 2]) + prev_X[i * 3 + 2];
+		next_X[pId] = omega*(next_X[pId] - prev_X[pId]) + prev_X[pId];
 	}
 
 	template<typename TDataType>
@@ -589,11 +585,11 @@ namespace Physika
 
 		Log::sendMessage(Log::User, "\n \n \n \n *************solver start!!!***************");
 
-		if (ind_num == 0)
-		{
-			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->m_position.getValue());
-			ind_num++;
-		}
+// 		if (ind_num == 0)
+// 		{
+// 			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->m_position.getValue());
+// 			ind_num++;
+// 		}
 
 		/**************************** Jacobi method ************************************************/
 		// initialize y_now, y_next_iter
@@ -607,7 +603,7 @@ namespace Physika
 		int iterCount = 0;
 
 		Real omega;
-		while (iterCount < 20) {
+		while (iterCount < 10) {
 
 			HM_ComputeF << <pDims, BLOCK_SIZE >> > (
 				m_F,
