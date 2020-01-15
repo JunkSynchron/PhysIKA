@@ -40,6 +40,7 @@ namespace Physika {
 
 		void resetRestShape();
 
+
 	protected:
 		bool initializeImpl() override;
 

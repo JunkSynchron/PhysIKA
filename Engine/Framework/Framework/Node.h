@@ -285,6 +285,7 @@ public:
 	virtual void takeOneFrame() {};
 	virtual void updateModules() {};
 	virtual void updateTopology() {};
+	virtual void updateTopologyMapping() {};
 	virtual bool resetStatus() { return true; }
 
 	/**

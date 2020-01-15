@@ -155,6 +155,19 @@ namespace Physika
 		return Node::resetStatus();
 	}
 
+	template<typename TDataType>
+	void ParticleSystem<TDataType>::setTopologyModule(std::shared_ptr<TopologyModule> module)
+	{
+		m_pSet = TypeInfo::CastPointerDown<PointSet<TDataType>>(module);
+		
+		if (!m_pSet)
+		{
+			Log::sendMessage(Log::Warning, "Topology is a valid PointSet!");
+		}
+
+		Node::setTopologyModule(module);
+	}
+
 // 	template<typename TDataType>
 // 	std::shared_ptr<PointRenderModule> ParticleSystem<TDataType>::getRenderModule()
 // 	{

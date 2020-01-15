@@ -119,6 +119,7 @@ namespace Physika
 
 		this->setPoints(vertList);
 		this->setNormals(normalList);
+
 		setTriangles(faceList);
 	}
 

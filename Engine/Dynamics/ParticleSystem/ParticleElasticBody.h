@@ -24,6 +24,7 @@ namespace Physika
 		bool initialize() override;
 		void advance(Real dt) override;
 		void updateTopology() override;
+		void updateTopologyMapping() override;
 
 		bool translate(Coord t) override;
 		bool scale(Real s) override;
@@ -36,13 +37,12 @@ namespace Physika
 
 		std::shared_ptr<Node> getSurfaceNode() { return m_surfaceNode; }
 
-		void loadParticles_randomOffset(Coord lo, Coord hi, Real distance, Real offset_rate);
-
 	public:
 		VarField<Real> m_horizon;
 
 	private:
 		std::shared_ptr<Node> m_surfaceNode;
+		std::shared_ptr<PointSetToPointSet<TDataType>> surfaceMapping;
 	};
 
 #ifdef PRECISION_FLOAT

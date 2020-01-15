@@ -343,22 +343,22 @@ const Vector<Real,3> Quaternion<Real>::rotate(const Vector<Real,3> v) const
         );
 }
 
-//template <typename Real>
-//void Quaternion<Real>::rotateVector(Vector<Real, 3>& v)
-//{
-//	Real xlen = v.norm();
-//	if (xlen == 0.0f) return;
-//
-//	Quaternion p(0, v[0], v[1], v[2]);
-//	Quaternion qbar(x_, -y_, -z_, -w_);
-//	Quaternion qtmp;
-//	qtmp = (*this)*p;
-//	qtmp = qtmp*qbar;
-//	qtmp.normalize();
-//	v[0] = qtmp.y_; v[1] = qtmp.z_; v[2] = qtmp.w_;
-//	v.normalize();
-//	v *= xlen;
-//}
+template <typename Real>
+void Quaternion<Real>::rotateVector(Vector<Real, 3>& v)
+{
+	Real xlen = v.norm();
+	if (xlen == 0.0f) return;
+
+	Quaternion p(v[0], v[1], v[2], 0);
+	Quaternion qbar(-x_, -y_, -z_, w_);
+	Quaternion qtmp;
+	qtmp = (*this)*p;
+	qtmp = qtmp*qbar;
+	qtmp.normalize();
+	v[0] = qtmp.x_; v[1] = qtmp.y_; v[2] = qtmp.z_;
+	v.normalize();
+	v *= xlen;
+}
 
 
 template <typename Real>

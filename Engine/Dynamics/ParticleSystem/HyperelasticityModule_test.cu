@@ -1,5 +1,6 @@
 #include "HyperelasticityModule_test.h"
 #include "Core/Utility.h"
+#include "Core/Utility/CudaRand.h"
 #include "Framework/Framework/Node.h"
 #include "Core/Algorithm/MatrixFunc.h"
 #include "Kernel.h"
@@ -32,7 +33,7 @@ namespace Physika
 	template<typename TDataType>
 	HyperelasticityModule_test<TDataType>::HyperelasticityModule_test()
 		: ElasticityModule<TDataType>()
-		, m_energyType(StVK)
+		, m_energyType(Polynomial)
 	{
 	}
 
@@ -58,6 +59,7 @@ namespace Physika
 	__global__ void HM_ComputeF(
 		DeviceArray<Matrix> F,
 		DeviceArray<Coord> eigens,
+		DeviceArray<Matrix> invK,
 		DeviceArray<Matrix> RU,
 		DeviceArray<Coord> position,
 		NeighborList<NPair> restShapes,
@@ -113,12 +115,18 @@ namespace Physika
 		D(0, 0) = D(0, 0) > threshold ? 1.0 / D(0, 0) : 1.0;
 		D(1, 1) = D(1, 1) > threshold ? 1.0 / D(1, 1) : 1.0;
 		D(2, 2) = D(2, 2) > threshold ? 1.0 / D(2, 2) : 1.0;
+		invK[pId] = V*D*U.transpose();
 		F[pId] = matL_i*V*D*U.transpose();
 
 		polarDecomposition(F[pId], R, U, D, V);
 
-		eigens[pId] = Coord(clamp(D(0, 0), Real(0.01), Real(100)), clamp(D(1, 1), Real(0.01), Real(100)), clamp(D(2, 2), Real(0.01), Real(100)));
+		const Real slimit = Real(0.05);
+		eigens[pId] = Coord(clamp(D(0, 0), Real(slimit), Real(1/ slimit)), clamp(D(1, 1), Real(slimit), Real(1 / slimit)), clamp(D(2, 2), Real(slimit), Real(1 / slimit)));
+		//eigens[pId] = Coord(D(0, 0), D(1, 1), D(2, 2));
 		RU[pId] = U;
+
+// 		Matrix F_i = F[pId];
+// 		printf("%f %f %f \n %f %f %f \n %f %f %f \n \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
 	}
 
 
@@ -339,6 +347,14 @@ namespace Physika
 
 	}
 
+	template <typename Real>
+	__device__ Real HM_Interpolant(Real lambda)
+	{
+		Real l_max = 0.15;
+		Real l_min = 0.05;
+		return clamp((l_max - lambda) / (l_max - l_min), Real(0), Real(1));
+	}
+
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
 	__global__ void HM_JacobiStep(
 		DeviceArray<Coord> y_next,
@@ -346,6 +362,7 @@ namespace Physika
 		DeviceArray<Coord> y_old,
 		DeviceArray<Matrix> Rot,
 		DeviceArray<Coord> eigen,
+		DeviceArray<Matrix> F,
 		NeighborList<NPair> restShapes,
 		Real horizon,
 		DeviceArray<Real> volume,
@@ -357,13 +374,20 @@ namespace Physika
 
 		SmoothKernel<Real> kernSmooth;
 		HyperelasticityModel<Real, Matrix>* model = getElasticityModel<Real, Matrix>(type);
+		//StVKModel<Real, Matrix> model;
 
 		Real lambda_i1 = eigen[pId][0];
 		Real lambda_i2 = eigen[pId][1];
 		Real lambda_i3 = eigen[pId][2];
 
+		Matrix F_i = F[pId];
+// 		if ((F_i.determinant()) < -0.001f)
+// 		{
+// 			F_i = Matrix::identityMatrix();
+// 		}
+
 		Matrix PK1_i = Rot[pId]*model->getStressTensorPositive(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
-		Matrix PK2_i = Rot[pId]*model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
+		Matrix PK2_i = Rot[pId]* model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
 
 		Real V_i = volume[pId];
 
@@ -388,6 +412,12 @@ namespace Physika
 				Real weight = kernSmooth.Weight(r, horizon);
 
 				Real V_j = volume[j];
+				Matrix F_j = F[j];
+
+// 				if ((F_j.determinant()) < -0.001f)
+// 				{
+// 					F_j = Matrix::identityMatrix();
+// 				}
 
 				const Real scale = V_i*V_j;
 
@@ -397,12 +427,51 @@ namespace Physika
 				Real lambda_j2 = eigen[j][1];
 				Real lambda_j3 = eigen[j][2];
 
-				Matrix PK1_ij = PK1_i + Rot[j]*model->getStressTensorPositive(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
-				Matrix PK2_ij = PK2_i + Rot[j]*model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
+				Matrix PK1_ij1 = PK1_i + Rot[j] * model->getStressTensorPositive(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
+				Matrix PK1_ij2 = PK2_i + Rot[j] * model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
+				
+				Matrix PK2_ij1 = 48000 * 2.0 * Matrix::identityMatrix();
+				Matrix PK2_ij2 = 48000 * 2.0 * Matrix::identityMatrix();
+
+
+// 				PK1_ij1 = Matrix(0);
+// 				PK1_ij2 = Matrix(0);
+// 				if (eigen[pId][0] < 0.5 || eigen[pId][1] < 0.5 || eigen[pId][2] < 0.5 || eigen[j][0] < 0.5 || eigen[j][1] < 0.5 || eigen[j][2] < 0.5)
+// 				{
+// 					PK1_ij1 = Matrix(0);
+// 					PK1_ij2 = Matrix(0);
+// 				}
+// 				else
+// 				{
+// 					PK2_ij1 = Matrix(0);
+// 					PK2_ij2 = Matrix(0);
+// 				}
+
+				Real linear_weight1 = HM_Interpolant(lambda_j1);
+				Real linear_weight2 = HM_Interpolant(lambda_j2);
+				Real linear_weight3 = HM_Interpolant(lambda_j3);
+
+				Real int0 = max(linear_weight1, max(linear_weight2, linear_weight3));
+
+				PK1_ij1 *= (1 - int0);
+				PK1_ij2 *= (1 - int0);
+
+
+				PK2_ij1 *= int0;
+				PK2_ij2 *= int0;
+
+				Coord rest_dir_ij = (F_i + F_j)*(y_rest_i - np_j.pos);
+
+				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0, 0, 0);
 
 				Coord y_pre_ij = (y_pre_i - y_pre_j);
-				source_i += sw_ij*PK1_ij*y_pre_j + sw_ij*PK2_ij*y_pre_ij;
-				mat_i += sw_ij*PK1_ij;
+				source_i += sw_ij*PK1_ij1*y_pre_j + sw_ij*PK1_ij2*y_pre_ij;
+				mat_i += sw_ij*PK1_ij1;
+
+				source_i += sw_ij*PK2_ij1*y_pre_j + sw_ij*PK2_ij2*r*rest_dir_ij;
+				mat_i += sw_ij*PK2_ij1;
+
+				//printf("%f \n", sw_ij* 480000 * 2.0);
 			}
 		}
 
@@ -410,7 +479,31 @@ namespace Physika
 		source_i += mass_i*y_old_i;
 
 		mat_i += mass_i*Matrix::identityMatrix();
+
+		Real int1 = HM_Interpolant(lambda_i1);
+		Real int2 = HM_Interpolant(lambda_i2);
+		Real int3 = HM_Interpolant(lambda_i3);
+
+		Real int0 = max(int1, max(int2, int3));
+
+// 		if (int0 > 0)
+// 		{
+// 			printf("Interplant %d: %f %f %f %f \n", pId, int0, lambda_i1, lambda_i2, lambda_i3);
+// 		}
+
+//		printf("%f %f %f \n %f %f %f \n %f %f %f \n \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
+
+// 		Coord rotated = (F_i + F_j)*Vector3f(1, 0, 0);
+// 		printf("Rotated: %f %f %f \n", rotated[0], rotated[1], rotated[2]);
+
+
+//  		printf("%d Src: %f %f %f \n", pId, source_i[0], source_i[1], source_i[2]);
+//   		printf("%d Mat: %f %f %f \n", pId, mat_i(0, 0)*y_pre_i[0], mat_i(1, 1)*y_pre_i[1], mat_i(2, 2)*y_pre_i[2]);
+
 		y_next[pId] = mat_i.inverse()*source_i;
+
+// 		printf("%d Old: %f %f %f \n", pId, y_pre_i[0], y_pre_i[1], y_pre_i[2]);
+// 		printf("%d New: %f %f %f \n", pId, y_next[pId][0], y_next[pId][1], y_next[pId][2]);
 
 		delete model;
 	}
@@ -420,6 +513,7 @@ namespace Physika
 	{
 		m_F.resize(this->m_position.getElementCount());
 		m_invF.resize(this->m_position.getElementCount());
+		m_invK.resize(this->m_position.getElementCount());
 
 		m_eigenValues.resize(this->m_position.getElementCount());
 		m_Rot.resize(this->m_position.getElementCount());
@@ -431,6 +525,9 @@ namespace Physika
 		y_pre.resize(this->m_position.getElementCount());
 		y_next.resize(this->m_position.getElementCount());
 		y_current.resize(this->m_position.getElementCount());
+
+		m_source.resize(this->m_position.getElementCount());
+		m_A.resize(this->m_position.getElementCount());
 
 		initializeVolume();
 
@@ -476,6 +573,8 @@ namespace Physika
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= position.size()) return;
 
+		RandNumber gen(pId);
+
 		Matrix rotM(0);
 		float theta = 3.1415926 / 4.0f;
 		rotM(0, 0) = cos(theta);
@@ -488,7 +587,11 @@ namespace Physika
 // 		rotM(1, 1) = -sin(theta);
 		rotM(2, 2) = 1.0f;
 		Coord origin = position[0];
-		position[pId] = origin + rotM*(position[pId] - origin);
+		//position[pId] = origin + rotM*(position[pId] - origin);
+		position[pId][0] += 0.1*(gen.Generate() - 0.5);
+		position[pId][1] += 0.1*(gen.Generate() - 0.5);
+		position[pId][2] += 0.1*(gen.Generate() - 0.5);
+//		position[pId][1] = - position[pId][1] + 0.1;
 	}
 
 	template <typename Coord>
@@ -585,11 +688,11 @@ namespace Physika
 
 		Log::sendMessage(Log::User, "\n \n \n \n *************solver start!!!***************");
 
-// 		if (ind_num == 0)
-// 		{
-// 			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->m_position.getValue());
-// 			ind_num++;
-// 		}
+		if (ind_num == 0)
+		{
+			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->m_position.getValue());
+			ind_num++;
+		}
 
 		/**************************** Jacobi method ************************************************/
 		// initialize y_now, y_next_iter
@@ -603,11 +706,15 @@ namespace Physika
 		int iterCount = 0;
 
 		Real omega;
-		while (iterCount < 10) {
+		while (iterCount < this->getIterationNumber()) {
+
+			m_source.reset();
+			m_A.reset();
 
 			HM_ComputeF << <pDims, BLOCK_SIZE >> > (
 				m_F,
 				m_eigenValues,
+				m_invK,
 				m_Rot,
 				y_current,
 				this->m_restShape.getValue(),
@@ -620,6 +727,7 @@ namespace Physika
 				m_position_old,
 				m_Rot,
 				m_eigenValues,
+				m_F,
 				this->m_restShape.getValue(),
 				this->m_horizon.getValue(),
 				m_volume, this->getParent()->getDt(),
@@ -704,6 +812,7 @@ namespace Physika
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= energy.size()) return;
 
+		//StVKModel<Real, Matrix> model;
 		HyperelasticityModel<Real, Matrix>* model = getElasticityModel<Real, Matrix>(type);
 
 		Coord eigen_i = eigens[pId];
@@ -722,6 +831,7 @@ namespace Physika
 		HM_ComputeF << <pDims, BLOCK_SIZE >> > (
 			m_F,
 			m_eigenValues,
+			m_invK,
 			m_Rot,
 			position,
 			this->m_restShape.getValue(),

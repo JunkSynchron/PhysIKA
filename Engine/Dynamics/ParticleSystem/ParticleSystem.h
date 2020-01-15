@@ -49,6 +49,8 @@ namespace Physika
 		void updateTopology() override;
 		bool resetStatus() override;
 
+		void setTopologyModule(std::shared_ptr<TopologyModule> module) override;
+
 //		std::shared_ptr<PointRenderModule> getRenderModule();
 	public:
 		bool initialize() override;

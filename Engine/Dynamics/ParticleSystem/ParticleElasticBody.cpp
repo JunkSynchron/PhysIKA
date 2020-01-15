@@ -39,7 +39,7 @@ namespace Physika
 		auto triSet = m_surfaceNode->template setTopologyModule<TriangleSet<TDataType>>("surface_mesh");
 
 		//Set the topology mapping from PointSet to TriangleSet
-		auto surfaceMapping = this->template addTopologyMapping<PointSetToPointSet<TDataType>>("surface_mapping");
+		surfaceMapping = this->template addTopologyMapping<PointSetToPointSet<TDataType>>("surface_mapping");
 		surfaceMapping->setFrom(this->m_pSet);
 		surfaceMapping->setTo(triSet);
 	}
@@ -105,6 +105,19 @@ namespace Physika
 
 
 	template<typename TDataType>
+	void ParticleElasticBody<TDataType>::updateTopologyMapping()
+	{
+		auto tModule = m_surfaceNode->getTopologyModule();//getModule<TetrahedronSet<TDataType>>("surface_mesh");
+		auto ptDes = TypeInfo::CastPointerDown<PointSet<TDataType>>(tModule);
+		if (this->m_pSet && ptDes)
+		{
+			surfaceMapping->setFrom(this->m_pSet);
+			surfaceMapping->setTo(ptDes);
+		}
+	}
+
+
+	template<typename TDataType>
 	std::shared_ptr<ElasticityModule<TDataType>> ParticleElasticBody<TDataType>::getElasticitySolver()
 	{
 		auto module = this->template getModule<ElasticityModule<TDataType>>("elasticity");
@@ -144,5 +157,4 @@ namespace Physika
 
 		return mapping;
 	}
-
 }

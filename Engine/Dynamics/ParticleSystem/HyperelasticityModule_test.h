@@ -470,15 +470,19 @@ namespace Physika {
 
 		DeviceArray<Matrix> m_F;
 		DeviceArray<Matrix> m_invF;
+		DeviceArray<Matrix> m_invK;
 		DeviceArray<Matrix> m_Rot;
 
 		DeviceArray<Coord> y_pre;
 		DeviceArray<Coord> y_current;
 		DeviceArray<Coord> y_next;
 
+		DeviceArray<Coord> m_source;
+		DeviceArray<Matrix> m_A;
+
 		Reduction<Real>* m_reduce;
 
-		bool bChebyshevAccOn = true;
+		bool bChebyshevAccOn = false;
 		Real rho = Real(0.992);
 	};
 

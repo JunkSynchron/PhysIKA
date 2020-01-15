@@ -17,6 +17,7 @@ namespace Physika
 	void InitAct::Process(Node* node)
 	{
 		node->resetStatus();
+		node->updateTopologyMapping();
 		node->initialize();
 
 		auto& list = node->getModuleList();
