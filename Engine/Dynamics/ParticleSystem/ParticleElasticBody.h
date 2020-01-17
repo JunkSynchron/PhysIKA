@@ -1,5 +1,6 @@
 #pragma once
 #include "ParticleSystem.h"
+#include "ParticleIntegrator.h"
 
 namespace Physika
 {
@@ -37,7 +38,7 @@ namespace Physika
 
 		std::shared_ptr<SurfaceMeshRender> getSurfaceRender() { return m_surfaceRender; }
 
-		void loadParticles_randomOffset(Coord lo, Coord hi, Real distance, Real offset_rate);
+		void setBarIntegrator(std::shared_ptr<ParticleIntegrator<TDataType>> integrator);
 
 	public:
 		VarField<Real> m_horizon;

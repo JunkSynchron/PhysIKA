@@ -12,6 +12,7 @@
 */
 #pragma once
 #include "ElasticityModule.h"
+#include "Framework/Topology/NeighborQuery.h"
 
 namespace Physika {
 
@@ -19,6 +20,11 @@ namespace Physika {
 	class HyperelasticityModule_NewtonMethod : public ElasticityModule<TDataType>
 	{
 	public:
+		typedef typename TDataType::Real Real;
+		typedef typename TDataType::Coord Coord;
+		typedef typename TDataType::Matrix Matrix;
+		typedef TPair<TDataType> NPair;
+
 		HyperelasticityModule_NewtonMethod();
 		~HyperelasticityModule_NewtonMethod() override {};
 
@@ -52,10 +58,13 @@ namespace Physika {
 		EnergyType m_energyType;
 
 		DeviceArray<Real> m_totalWeight;
-		Real weightScale = 110;
+		Real weightScale = 150;
 
 		DeviceArray<Coord> m_Sum_delta_x;
 		DeviceArray<Coord> m_source_items;
+
+		NeighborQuery<TDataType> hessian_query;
+		DeviceArray<Matrix> m_hessian_matrix;
 
 		DeviceArray<Matrix> m_invK;
 		Matrix common_K;
@@ -63,12 +72,7 @@ namespace Physika {
 		DeviceArray<Matrix> m_F;
 		DeviceArray<Matrix> m_firstPiolaKirchhoffStress;
 
-		bool debug_pos_isNaN = false;
-		bool debug_v_isNaN = false;
-		bool debug_invL_isNaN = false;
-		bool debug_F_isNaN = false;
-		bool debug_invF_isNaN = false;
-		bool debug_Piola_isNaN = false;
+		bool is_debug = true;
 	};
 
 }
