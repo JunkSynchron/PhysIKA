@@ -9,6 +9,7 @@
 
 #include "Framework/Framework/SceneGraph.h"
 #include "Framework/Topology/PointSet.h"
+#include "Framework/Topology/TetrahedronSet.h"
 #include "Framework/Framework/Log.h"
 
 #include "Dynamics/ParticleSystem/ParticleElasticBody.h"
@@ -42,7 +43,7 @@ void CreateScene()
 {
 	SceneGraph& scene = SceneGraph::getInstance();
 
-	scene.setGravity(Vector3f(0, -9.8, 0));
+	scene.setGravity(Vector3f(0, 0, 0));
 
 	std::shared_ptr<StaticBoundary<DataType3f>> root = scene.createNewScene<StaticBoundary<DataType3f>>();
 	root->loadCube(Vector3f(0), Vector3f(1.0), 0.005, true);
@@ -53,21 +54,36 @@ void CreateScene()
 	child3->setMass(1.0);
 //   	child3->loadParticles("../Media/bunny/bunny_points.obj");
 //   	child3->loadSurface("../Media/bunny/bunny_mesh.obj");
-	child3->scale(0.8);
-	child3->setDt(0.004f);
+	child3->setDt(0.001f);
 //	child3->translate(Vector3f(0.25, 0.1, 0.5));
 	child3->setVisible(true);
 	auto hyper_test = std::make_shared<HyperelasticityModule_test<DataType3f>>();
-	hyper_test->setMu(1200);
-	hyper_test->setLambda(400);
+	hyper_test->setMu(48000);
+	hyper_test->setLambda(0);
 	child3->setElasticitySolver(hyper_test);
 //	child3->getSurfaceRender()->setColor(Vector3f(1, 1, 0));
-	child3->getElasticitySolver()->setIterationNumber(10);
+	child3->getElasticitySolver()->setIterationNumber(500);
+	child3->m_horizon.setValue(0.006);
+	child3->setVisible(true);
 
 	auto ptRender = std::make_shared<PointRenderModule>();
 	ptRender->setColor(Vector3f(1, 0, 0));
 	ptRender->setColorRange(0, 4);
 	child3->addVisualModule(ptRender);
+
+// 	std::shared_ptr<TetrahedronSet<DataType3f>> tetSet = std::make_shared<TetrahedronSet<DataType3f>>();
+// 	tetSet->loadTetFile("../Media/Armadillo_10K.1");
+// 	tetSet->scale(0.0025);
+// 	tetSet->translate(Vector3f(0.5f, 0.2f, 0.5f));
+// 
+// 	std::shared_ptr<PointSet<DataType3f>> ptSet = std::make_shared<PointSet<DataType3f>>();
+// 	ptSet->setPoints(tetSet->getPoints());
+// 	child3->setTopologyModule(ptSet);
+// 
+// 	child3->getSurfaceNode()->setTopologyModule(tetSet);
+// 	child3->getSurfaceNode()->setVisible(true);
+// 	auto sRender = std::make_shared<SurfaceMeshRender>();
+// 	child3->getSurfaceNode()->addVisualModule(sRender);
 
 	/*
 	std::shared_ptr<ParticleElasticBody<DataType3f>> child4 = std::make_shared<ParticleElasticBody<DataType3f>>();

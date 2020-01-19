@@ -94,7 +94,7 @@ namespace Physika {
 	public:
 		COMM_FUNC StVKModel() : HyperelasticityModel<Real, Matrix>()
 		{
-			density = Real(1);
+			density = Real(0.001);
 			s1 = Real(48000);
 			s0 = Real(12000);
 		}
@@ -140,7 +140,7 @@ namespace Physika {
 	public:
 		COMM_FUNC NeoHookeanModel() : HyperelasticityModel<Real, Matrix>()
 		{
-			density = Real(1);
+			density = Real(0.001);
 			s1 = Real(48000);
 			s0 = Real(12000);
 		}
@@ -454,6 +454,7 @@ namespace Physika {
 		bool initializeImpl() override;
 
 		void initializeVolume();
+		void initializeFixed();
 
 		//void previous_enforceElasticity();
 
@@ -461,6 +462,8 @@ namespace Physika {
 		void getEnergy(Real& totalEnergy, DeviceArray<Coord>& position);
 
 		EnergyType m_energyType;
+
+		DeviceArray<Real> m_fraction;
 
 		DeviceArray<Real> m_energy;
 		DeviceArray<Real> m_volume;
@@ -481,6 +484,9 @@ namespace Physika {
 		DeviceArray<Matrix> m_A;
 
 		Reduction<Real>* m_reduce;
+
+		DeviceArray<bool> m_bFixed;
+		DeviceArray<Coord> m_fixedPos;
 
 		bool bChebyshevAccOn = false;
 		Real rho = Real(0.992);

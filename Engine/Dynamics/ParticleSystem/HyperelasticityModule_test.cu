@@ -33,7 +33,7 @@ namespace Physika
 	template<typename TDataType>
 	HyperelasticityModule_test<TDataType>::HyperelasticityModule_test()
 		: ElasticityModule<TDataType>()
-		, m_energyType(Polynomial)
+		, m_energyType(StVK)
 	{
 	}
 
@@ -124,9 +124,39 @@ namespace Physika
 		eigens[pId] = Coord(clamp(D(0, 0), Real(slimit), Real(1/ slimit)), clamp(D(1, 1), Real(slimit), Real(1 / slimit)), clamp(D(2, 2), Real(slimit), Real(1 / slimit)));
 		//eigens[pId] = Coord(D(0, 0), D(1, 1), D(2, 2));
 		RU[pId] = U;
+		//RU[pId] = Matrix::identityMatrix();
 
 // 		Matrix F_i = F[pId];
+// 		if (pId == position.size() - 18)
+// 		{
+// 			Matrix F_i = F[pId];
+// 			Coord eigen_i = eigens[pId];
+// 			printf("%d \n", pId);
+// 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
+// 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", U(0, 0), U(0, 1), U(0, 2), U(1, 0), U(1, 1), U(1, 2), U(2, 0), U(2, 1), U(2, 2));
+// 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", V(0, 0), V(0, 1), V(0, 2), V(1, 0), V(1, 1), V(1, 2), V(2, 0), V(2, 1), V(2, 2));
+// 			printf("%f %f %f \n \n", eigen_i[0], eigen_i[1], eigen_i[2]);
+// 		}
 // 		printf("%f %f %f \n %f %f %f \n %f %f %f \n \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
+	}
+
+
+	template <typename Real, typename Coord>
+	__global__ void HM_Blend(
+		DeviceArray<Real> blend,
+		DeviceArray<Coord> eigens)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= blend.size()) return;
+
+		Coord eigen_i = eigens[pId];
+		Real l = min(eigen_i[0], min(eigen_i[1], eigen_i[2]));
+
+		Real l_max = 0.8;
+		Real l_min = 0.2;
+
+		Real value = (l_max - l) / (l_max - l_min);
+		blend[pId] = clamp(value, Real(0), Real(1));
 	}
 
 
@@ -356,42 +386,29 @@ namespace Physika
 	}
 
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
-	__global__ void HM_JacobiStep(
-		DeviceArray<Coord> y_next,
+	__global__ void HM_JacobiLinear(
+		DeviceArray<Coord> source,
+		DeviceArray<Matrix> A,
 		DeviceArray<Coord> y_pre,
-		DeviceArray<Coord> y_old,
-		DeviceArray<Matrix> Rot,
-		DeviceArray<Coord> eigen,
 		DeviceArray<Matrix> F,
 		NeighborList<NPair> restShapes,
-		Real horizon,
 		DeviceArray<Real> volume,
+		Real horizon,
 		Real dt,
-		EnergyType type)
+		DeviceArray<Real> fraction)
 	{
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= y_next.size()) return;
+		if (pId >= source.size()) return;
 
 		SmoothKernel<Real> kernSmooth;
-		HyperelasticityModel<Real, Matrix>* model = getElasticityModel<Real, Matrix>(type);
-		//StVKModel<Real, Matrix> model;
-
-		Real lambda_i1 = eigen[pId][0];
-		Real lambda_i2 = eigen[pId][1];
-		Real lambda_i3 = eigen[pId][2];
 
 		Matrix F_i = F[pId];
-// 		if ((F_i.determinant()) < -0.001f)
-// 		{
-// 			F_i = Matrix::identityMatrix();
-// 		}
-
-		Matrix PK1_i = Rot[pId]*model->getStressTensorPositive(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
-		Matrix PK2_i = Rot[pId]* model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
+		if ((F_i.determinant()) < -0.001f)
+		{
+			F_i = Matrix::identityMatrix();
+		}
 
 		Real V_i = volume[pId];
-
-		Real mass_i = V_i*model->density;
 
 		Coord y_pre_i = y_pre[pId];
 		Coord y_rest_i = restShapes.getElement(pId, 0).pos;
@@ -414,10 +431,100 @@ namespace Physika
 				Real V_j = volume[j];
 				Matrix F_j = F[j];
 
-// 				if ((F_j.determinant()) < -0.001f)
-// 				{
-// 					F_j = Matrix::identityMatrix();
-// 				}
+				if ((F_i.determinant()) < -0.001f)
+				{
+					F_j = Matrix::identityMatrix();
+				}
+
+				const Real scale = V_i*V_j;
+
+				const Real sw_ij = dt*dt*scale*weight;
+
+				Matrix PK2_ij1 = 24000 * 2.0 * Matrix::identityMatrix();
+				Matrix PK2_ij2 = 24000 * 2.0 * Matrix::identityMatrix();
+
+				Coord rest_dir_ij = (F_i + F_j)*(y_rest_i - np_j.pos);
+
+				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0, 0, 0);
+
+// 				source_i += sw_ij*PK2_ij1*y_pre_j + sw_ij*PK2_ij2*r*rest_dir_ij;
+// 				mat_i += sw_ij*PK2_ij1;
+
+				source_i += sw_ij*PK2_ij1*y_pre_j + sw_ij*PK2_ij2*r*rest_dir_ij;
+				mat_i += sw_ij*PK2_ij1;
+
+				//printf("%f \n", sw_ij* 480000 * 2.0);
+			}
+		}
+
+// 		printf("%d Src: %d \n", pId, size_i);
+//  		printf("%d Src: %f %f %f \n", pId, source_i[0], source_i[1], source_i[2]);
+//   		printf("%d Mat: %f %f %f \n", pId, mat_i(0, 0), mat_i(1, 1), mat_i(2, 2));
+
+		source[pId] += source_i*(1 - fraction[pId]);
+		A[pId] += mat_i*(1 - fraction[pId]);
+
+// 		if (pId == 0)
+// 		{
+// 			printf("%d Linear Src: %f %f %f \n", pId, source_i[0]* (1 - fraction[pId]), source_i[1] * (1 - fraction[pId]), source_i[2] * (1 - fraction[pId]));
+// 			printf("%d Linear Mat: %f %f %f \n", pId, mat_i(0, 0)* (1 - fraction[pId]), mat_i(1, 1)* (1 - fraction[pId]), mat_i(2, 2)* (1 - fraction[pId]));
+// 		}
+
+	}
+
+
+	template <typename Real, typename Coord, typename Matrix, typename NPair>
+	__global__ void HM_JacobiStep(
+		DeviceArray<Coord> source,
+		DeviceArray<Matrix> A,
+		DeviceArray<Coord> y_next,
+		DeviceArray<Coord> y_pre,
+		DeviceArray<Coord> y_old,
+		DeviceArray<Matrix> Rot,
+		DeviceArray<Coord> eigen,
+		DeviceArray<Matrix> F,
+		NeighborList<NPair> restShapes,
+		Real horizon,
+		DeviceArray<Real> volume,
+		Real dt,
+		EnergyType type,
+		DeviceArray<Real> fraction)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= y_next.size()) return;
+
+		SmoothKernel<Real> kernSmooth;
+		HyperelasticityModel<Real, Matrix>* model = getElasticityModel<Real, Matrix>(type);
+		//StVKModel<Real, Matrix> model;
+
+		Real lambda_i1 = eigen[pId][0];
+		Real lambda_i2 = eigen[pId][1];
+		Real lambda_i3 = eigen[pId][2];
+
+		Matrix PK1_i = Rot[pId]*model->getStressTensorPositive(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
+		Matrix PK2_i = Rot[pId]*model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
+
+		Real V_i = volume[pId];
+
+		Coord y_pre_i = y_pre[pId];
+		Coord y_rest_i = restShapes.getElement(pId, 0).pos;
+
+		Matrix mat_i(0);
+		Coord source_i(0);
+
+		int size_i = restShapes.getNeighborSize(pId);
+		for (int ne = 0; ne < size_i; ne++)
+		{
+			NPair np_j = restShapes.getElement(pId, ne);
+			int j = np_j.index;
+			Coord y_pre_j = y_pre[j];
+			Real r = (np_j.pos - y_rest_i).norm();
+
+			if (r > EPSILON)
+			{
+				Real weight = kernSmooth.Weight(r, horizon);
+
+				Real V_j = volume[j];
 
 				const Real scale = V_i*V_j;
 
@@ -430,61 +537,38 @@ namespace Physika
 				Matrix PK1_ij1 = PK1_i + Rot[j] * model->getStressTensorPositive(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
 				Matrix PK1_ij2 = PK2_i + Rot[j] * model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
 				
-				Matrix PK2_ij1 = 48000 * 2.0 * Matrix::identityMatrix();
-				Matrix PK2_ij2 = 48000 * 2.0 * Matrix::identityMatrix();
-
-
-// 				PK1_ij1 = Matrix(0);
-// 				PK1_ij2 = Matrix(0);
-// 				if (eigen[pId][0] < 0.5 || eigen[pId][1] < 0.5 || eigen[pId][2] < 0.5 || eigen[j][0] < 0.5 || eigen[j][1] < 0.5 || eigen[j][2] < 0.5)
-// 				{
-// 					PK1_ij1 = Matrix(0);
-// 					PK1_ij2 = Matrix(0);
-// 				}
-// 				else
-// 				{
-// 					PK2_ij1 = Matrix(0);
-// 					PK2_ij2 = Matrix(0);
-// 				}
-
-				Real linear_weight1 = HM_Interpolant(lambda_j1);
-				Real linear_weight2 = HM_Interpolant(lambda_j2);
-				Real linear_weight3 = HM_Interpolant(lambda_j3);
-
-				Real int0 = max(linear_weight1, max(linear_weight2, linear_weight3));
-
-				PK1_ij1 *= (1 - int0);
-				PK1_ij2 *= (1 - int0);
-
-
-				PK2_ij1 *= int0;
-				PK2_ij2 *= int0;
-
-				Coord rest_dir_ij = (F_i + F_j)*(y_rest_i - np_j.pos);
-
-				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0, 0, 0);
 
 				Coord y_pre_ij = (y_pre_i - y_pre_j);
-				source_i += sw_ij*PK1_ij1*y_pre_j + sw_ij*PK1_ij2*y_pre_ij;
-				mat_i += sw_ij*PK1_ij1;
 
-				source_i += sw_ij*PK2_ij1*y_pre_j + sw_ij*PK2_ij2*r*rest_dir_ij;
-				mat_i += sw_ij*PK2_ij1;
+				Matrix ratio_ij = PK1_ij2*PK1_ij1.inverse();
+				Real projected_ij = (ratio_ij*y_pre_ij).norm();
+				Real l_ij = r / projected_ij;
+				l_ij = l_ij > 1 ? 1 : l_ij;
+
+				source_i += sw_ij*PK1_ij1*y_pre_j + l_ij*sw_ij*PK1_ij2*y_pre_ij;
+				mat_i += sw_ij*PK1_ij1;
 
 				//printf("%f \n", sw_ij* 480000 * 2.0);
 			}
 		}
 
-		Coord y_old_i = y_old[pId];
-		source_i += mass_i*y_old_i;
+		source[pId] += source_i*fraction[pId];
+		A[pId] += mat_i*fraction[pId];
 
-		mat_i += mass_i*Matrix::identityMatrix();
+// 		if (/*pId == A.size() - 18 || */pId == A.size() - 18)
+// 		{
+// 			Matrix F_i = A[pId];
+// 			Coord eigen_i = source[pId];
+// 			printf("Source %d \n", pId);
+// 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
+// 			printf("%f %f %f \n \n", eigen_i[0], eigen_i[1], eigen_i[2]);
+// 		}
 
-		Real int1 = HM_Interpolant(lambda_i1);
-		Real int2 = HM_Interpolant(lambda_i2);
-		Real int3 = HM_Interpolant(lambda_i3);
-
-		Real int0 = max(int1, max(int2, int3));
+// 		if (pId == 0)
+// 		{
+// 			printf("%d Hyper Src: %f %f %f \n", pId, source_i[0] * (fraction[pId]), source_i[1] * (fraction[pId]), source_i[2] * (fraction[pId]));
+// 			printf("%d Hyper Mat: %f %f %f \n", pId, mat_i(0, 0)* (fraction[pId]), mat_i(1, 1)* (fraction[pId]), mat_i(2, 2)* (fraction[pId]));
+// 		}
 
 // 		if (int0 > 0)
 // 		{
@@ -498,15 +582,37 @@ namespace Physika
 
 
 //  		printf("%d Src: %f %f %f \n", pId, source_i[0], source_i[1], source_i[2]);
-//   		printf("%d Mat: %f %f %f \n", pId, mat_i(0, 0)*y_pre_i[0], mat_i(1, 1)*y_pre_i[1], mat_i(2, 2)*y_pre_i[2]);
-
-		y_next[pId] = mat_i.inverse()*source_i;
+//   		printf("%d Mat: %f %f %f \n", pId, mat_i(0, 0), mat_i(1, 1), mat_i(2, 2));
 
 // 		printf("%d Old: %f %f %f \n", pId, y_pre_i[0], y_pre_i[1], y_pre_i[2]);
 // 		printf("%d New: %f %f %f \n", pId, y_next[pId][0], y_next[pId][1], y_next[pId][2]);
 
 		delete model;
 	}
+
+		template <typename Real, typename Coord, typename Matrix>
+		__global__ void HM_ComputeNextPosition(
+			DeviceArray<Coord> y_next,
+			DeviceArray<Coord> y_pre,
+			DeviceArray<Coord> y_old,
+			DeviceArray<Real> volume,
+			DeviceArray<Coord> source,
+			DeviceArray<Matrix> A,
+			EnergyType type)
+		{
+			int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+			if (pId >= y_next.size()) return;
+
+			HyperelasticityModel<Real, Matrix>* model = getElasticityModel<Real, Matrix>(type);
+			Real mass_i = volume[pId] * model->density;
+
+			Matrix mat_i = A[pId] + mass_i*Matrix::identityMatrix();
+			Coord src_i = source[pId] + mass_i*y_old[pId];
+
+			y_next[pId] = mat_i.inverse()*src_i;
+
+			delete model;
+		}
 
 	template<typename TDataType>
 	bool HyperelasticityModule_test<TDataType>::initializeImpl()
@@ -529,7 +635,13 @@ namespace Physika
 		m_source.resize(this->m_position.getElementCount());
 		m_A.resize(this->m_position.getElementCount());
 
+		m_fraction.resize(this->m_position.getElementCount());
+
+		m_bFixed.resize(this->m_position.getElementCount());
+		m_fixedPos.resize(this->m_position.getElementCount());
+
 		initializeVolume();
+		initializeFixed();
 
 		m_reduce = Reduction<Real>::Create(this->m_position.getElementCount());
 
@@ -555,6 +667,68 @@ namespace Physika
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
 		HM_InitVolume << <pDims, BLOCK_SIZE >> > (m_volume);
+	}
+
+	template <typename Coord>
+	__global__ void HM_InitFixedPos(
+		DeviceArray<bool> bFixed,
+		DeviceArray<Coord> fixedPos,
+		DeviceArray<Coord> position
+	)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= position.size()) return;
+
+		if (pId < 16 || pId >= position.size()-16 )
+		{
+			bFixed[pId] = true;
+			fixedPos[pId] = position[pId];
+		}
+		else
+		{
+			bFixed[pId] = false;
+			fixedPos[pId] = position[pId];
+		}
+	}
+
+	template <typename Coord>
+	__global__ void HM_AdjustFixedPos(
+		DeviceArray<bool> bFixed,
+		DeviceArray<Coord> fixedPos
+	)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= fixedPos.size()) return;
+
+		if (pId >= fixedPos.size() - 16)
+		{
+			fixedPos[pId] -= Coord(0.0025, 0, 0);
+		}
+	}
+
+	template <typename Coord>
+	__global__ void HM_EnforceFixedPos(
+		DeviceArray<Coord> position,
+		DeviceArray<bool> bFixed,
+		DeviceArray<Coord> fixedPos
+	)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= fixedPos.size()) return;
+
+		if (bFixed[pId])
+		{
+			position[pId] = fixedPos[pId];
+		}
+	}
+
+	template<typename TDataType>
+	void HyperelasticityModule_test<TDataType>::initializeFixed()
+	{
+		int numOfParticles = this->m_position.getElementCount();
+		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
+
+		HM_InitFixedPos << <pDims, BLOCK_SIZE >> > (m_bFixed, m_fixedPos, this->m_position.getValue());
 	}
 
 
@@ -605,7 +779,9 @@ namespace Physika
 
 		grad[pId] = y_next[pId] - y_pre[pId];
 
-//		printf("Thread ID %d: %f, %f, %f \n", pId, grad[pId][0], grad[pId][1], grad[pId][2]);
+		//if (pId == grad.size() - 20)
+// 		if (grad[pId].norm() > 0.00001)
+// 			printf("Thread ID %d: %f, %f, %f \n", pId, grad[pId][0], grad[pId][1], grad[pId][2]);
 	}
 
 	template <typename Real, typename Coord>
@@ -688,11 +864,20 @@ namespace Physika
 
 		Log::sendMessage(Log::User, "\n \n \n \n *************solver start!!!***************");
 
-		if (ind_num == 0)
-		{
-			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->m_position.getValue());
-			ind_num++;
-		}
+// 		if (ind_num == 0)
+// 		{
+// 			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->m_position.getValue());
+// 			ind_num++;
+// 		}
+
+		HM_AdjustFixedPos << <pDims, BLOCK_SIZE >> > (
+			m_bFixed,
+			m_fixedPos);
+
+		HM_EnforceFixedPos << <pDims, BLOCK_SIZE >> > (
+			this->m_position.getValue(),
+			m_bFixed,
+			m_fixedPos);
 
 		/**************************** Jacobi method ************************************************/
 		// initialize y_now, y_next_iter
@@ -721,7 +906,13 @@ namespace Physika
 				this->m_horizon.getValue());
 			cuSynchronize();
 
+			HM_Blend << <pDims, BLOCK_SIZE >> > (
+				m_fraction,
+				m_eigenValues);
+
 			HM_JacobiStep << <pDims, BLOCK_SIZE >> > (
+				m_source,
+				m_A,
 				y_next,
 				y_current,
 				m_position_old,
@@ -731,6 +922,27 @@ namespace Physika
 				this->m_restShape.getValue(),
 				this->m_horizon.getValue(),
 				m_volume, this->getParent()->getDt(),
+				m_energyType,
+				m_fraction);
+
+			HM_JacobiLinear << <pDims, BLOCK_SIZE >> > (
+				m_source,
+				m_A,
+				y_current,
+				m_F,
+				this->m_restShape.getValue(),
+				m_volume,
+				this->m_horizon.getValue(),
+				this->getParent()->getDt(),
+				m_fraction);
+
+			HM_ComputeNextPosition << <pDims, BLOCK_SIZE >> > (
+				y_next,
+				y_current,
+				m_position_old,
+				m_volume,
+				m_source,
+				m_A,
 				m_energyType);
 
 			HM_ComputeGradient << <pDims, BLOCK_SIZE >> > (
@@ -740,23 +952,24 @@ namespace Physika
 			cuSynchronize();
 
 			//stepsize adjustment
-			Real totalE_before;
 			Real totalE_current;
-			getEnergy(totalE_before, y_current);
-			getEnergy(totalE_current, y_next);
+			Real totalE_next;
+			getEnergy(totalE_current, y_current);
+			getEnergy(totalE_next, y_next);
 
-			printf("Previous: %f Next: %f \n", totalE_before, totalE_current);
+// 			printf("Current: %f Next: %f \n", totalE_current, totalE_next);
 
+			//stepping
+			/*
 			Real alpha = 1.0f;
-			int step = 0;
 
-			while (totalE_current > totalE_before + 100.0)
+			while (totalE_next > totalE_current + 1.0)
 			{
 				step++;
 				alpha *= 0.5;
 
-				printf("Previous: %f Next: %f \n", totalE_before, totalE_current);
-				printf("Iteration %d Step %d alpha: %f \n", iterCount, step, alpha);
+// 				printf("Previous: %f Next: %f \n", totalE_current, totalE_next);
+// 				printf("Iteration %d Step %d alpha: %f \n", iterCount, step, alpha);
 
 				HM_ComputeCurrentPosition << <pDims, BLOCK_SIZE >> > (
 					m_gradient,
@@ -764,9 +977,11 @@ namespace Physika
 					y_next,
 					alpha);
 
-				getEnergy(totalE_current, y_next);
+				getEnergy(totalE_next, y_next);
 			}
+			*/
 
+			int step = 0;
 			if (bChebyshevAccOn)
 			{
 				if (step <= 10)		omega = 1;
@@ -780,8 +995,14 @@ namespace Physika
 					omega);
 			}
 
+
 			Function1Pt::copy(y_pre, y_current);
 			Function1Pt::copy(y_current, y_next);
+
+// 			Real totalE_final;
+// 			getEnergy(totalE_final, y_current);
+
+//			printf("Final: %f \n", totalE_final);
 
 			iterCount++;
 		}
@@ -827,6 +1048,11 @@ namespace Physika
 	{
 		int numOfParticles = this->m_position.getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
+
+		HM_EnforceFixedPos << <pDims, BLOCK_SIZE >> > (
+			position,
+			m_bFixed,
+			m_fixedPos);
 
 		HM_ComputeF << <pDims, BLOCK_SIZE >> > (
 			m_F,

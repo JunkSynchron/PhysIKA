@@ -21,9 +21,9 @@ namespace Physika
 // 				}
 // 			}
 // 		}
-		for (Real x = 0.495; x < 0.5025; x += 0.005) {
-			for (Real y = 0.0075; y < 0.015; y += 0.005) {
-				for (Real z = 0.495; z < 0.5025; z += 0.005) {
+		for (Real x = 0.495; x < 0.6275; x += 0.005) {
+			for (Real y = 0.495; y < 0.5125; y += 0.005) {
+				for (Real z = 0.495; z < 0.5125; z += 0.005) {
 					positions.push_back(Coord(Real(x), Real(y), Real(z)));
 				}
 			}
@@ -115,8 +115,8 @@ namespace Physika
 	{
 		if (m_coords.size() != pointSet.getPointSize())
 		{
-			m_coords.resize(pointSet.getPointSize());
-			m_normals.resize(pointSet.getPointSize());
+			m_coords.resize(pointSet.getPoints().size());
+			m_normals.resize(pointSet.getNormals().size());
 		}
 		Function1Pt::copy(m_coords, pointSet.getPoints());
 		Function1Pt::copy(m_normals, pointSet.getNormals());
@@ -133,7 +133,23 @@ namespace Physika
 
 
 	template<typename TDataType>
+	void PointSet<TDataType>::setPoints(DeviceArray<Coord>& pos)
+	{
+		m_coords.resize(pos.size());
+		Function1Pt::copy(m_coords, pos);
+
+		tagAsChanged();
+	}
+
+	template<typename TDataType>
 	void PointSet<TDataType>::setNormals(std::vector<Coord>& normals)
+	{
+		m_normals.resize(normals.size());
+		Function1Pt::copy(m_normals, normals);
+	}
+
+	template<typename TDataType>
+	void PointSet<TDataType>::setNormals(DeviceArray<Coord>& normals)
 	{
 		m_normals.resize(normals.size());
 		Function1Pt::copy(m_normals, normals);

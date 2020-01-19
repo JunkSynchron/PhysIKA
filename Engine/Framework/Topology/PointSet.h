@@ -20,7 +20,9 @@ namespace Physika
 		void copyFrom(PointSet<TDataType>& pointSet);
 
 		void setPoints(std::vector<Coord>& pos);
+		void setPoints(DeviceArray<Coord>& pos);
 		void setNormals(std::vector<Coord>& normals);
+		void setNormals(DeviceArray<Coord>& normals);
 
 		DeviceArray<Coord>& getPoints() { return m_coords; }
 		DeviceArray<Coord>& getNormals() { return m_normals; }

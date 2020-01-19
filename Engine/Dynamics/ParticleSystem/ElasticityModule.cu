@@ -240,42 +240,42 @@ namespace Physika
 		atomicAdd(&delta_position[pId][2], accPos[2]);
 	}
 
-
-	template <typename Real, typename Coord, typename NPair>
-	__global__ void K_UpdatePosition(
-		DeviceArray<Coord> position,
-		DeviceArray<Coord> delta_position,
-		NeighborList<NPair> restShapes,
-		Real horizon)
-	{
-		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
-		if (pId >= position.size()) return;
-
-		CorrectedKernel<float> g_weightKernel;
-		Coord delta_pos_i = delta_position[pId];
-
-		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
-
-		Coord new_delta_pos_i = Coord(0);
-		int size_i = restShapes.getNeighborSize(pId);
-		for (int ne = 0; ne < size_i; ne++)
-		{
-			NPair np_j = restShapes.getElement(pId, ne);
-			Coord rest_pos_j = np_j.pos;
-			int j = np_j.index;
-			Real r = (rest_pos_j - rest_pos_i).norm();
-
-			Coord delta_pos_j = delta_position[j];
-
-			new_delta_pos_i += 0.1*(delta_pos_i)*g_weightKernel.Weight(r, horizon);
-		}
-
-
-
-//		position[pId] += delta_pos_i;
-		position[pId] += delta_position[pId];
-
-	}
+// 
+// 	template <typename Real, typename Coord, typename NPair>
+// 	__global__ void K_UpdatePosition(
+// 		DeviceArray<Coord> position,
+// 		DeviceArray<Coord> delta_position,
+// 		NeighborList<NPair> restShapes,
+// 		Real horizon)
+// 	{
+// 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+// 		if (pId >= position.size()) return;
+// 
+// 		CorrectedKernel<float> g_weightKernel;
+// 		Coord delta_pos_i = delta_position[pId];
+// 
+// 		Coord rest_pos_i = restShapes.getElement(pId, 0).pos;
+// 
+// 		Coord new_delta_pos_i = Coord(0);
+// 		int size_i = restShapes.getNeighborSize(pId);
+// 		for (int ne = 0; ne < size_i; ne++)
+// 		{
+// 			NPair np_j = restShapes.getElement(pId, ne);
+// 			Coord rest_pos_j = np_j.pos;
+// 			int j = np_j.index;
+// 			Real r = (rest_pos_j - rest_pos_i).norm();
+// 
+// 			Coord delta_pos_j = delta_position[j];
+// 
+// 			new_delta_pos_i += 0.1*(delta_pos_i)*g_weightKernel.Weight(r, horizon);
+// 		}
+// 
+// 
+// 
+// //		position[pId] += delta_pos_i;
+// 		position[pId] += delta_position[pId];
+// 
+// 	}
 
 	template <typename Real, typename Coord>
 	__global__ void K_UpdatePosition(
