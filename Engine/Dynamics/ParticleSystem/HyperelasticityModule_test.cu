@@ -12,6 +12,8 @@
 
 namespace Physika
 {
+#define FIXEDNUM 16
+
 	template<typename Real, typename Matrix>
 	__device__ HyperelasticityModel<Real, Matrix>* getElasticityModel(EnergyType type)
 	{
@@ -60,7 +62,8 @@ namespace Physika
 		DeviceArray<Matrix> F,
 		DeviceArray<Coord> eigens,
 		DeviceArray<Matrix> invK,
-		DeviceArray<Matrix> RU,
+		DeviceArray<Matrix> matU,
+		DeviceArray<Matrix> matV,
 		DeviceArray<Coord> position,
 		NeighborList<NPair> restShapes,
 		Real horizon)
@@ -116,26 +119,33 @@ namespace Physika
 		D(1, 1) = D(1, 1) > threshold ? 1.0 / D(1, 1) : 1.0;
 		D(2, 2) = D(2, 2) > threshold ? 1.0 / D(2, 2) : 1.0;
 		invK[pId] = V*D*U.transpose();
-		F[pId] = matL_i*V*D*U.transpose();
+		Matrix F_i = matL_i*V*D*U.transpose();
 
-		polarDecomposition(F[pId], R, U, D, V);
+		polarDecomposition(F_i, R, U, D, V);
 
-		const Real slimit = Real(0.05);
-		eigens[pId] = Coord(clamp(D(0, 0), Real(slimit), Real(1/ slimit)), clamp(D(1, 1), Real(slimit), Real(1 / slimit)), clamp(D(2, 2), Real(slimit), Real(1 / slimit)));
-		//eigens[pId] = Coord(D(0, 0), D(1, 1), D(2, 2));
-		RU[pId] = U;
+		const Real slimit = Real(0.01);
+		D(0, 0) = clamp(D(0, 0), Real(slimit), Real(1 / slimit));
+		D(1, 1) = clamp(D(1, 1), Real(slimit), Real(1 / slimit));
+		D(2, 2) = clamp(D(2, 2), Real(slimit), Real(1 / slimit));
+		//eigens[pId] = Coord(clamp(D(0, 0), Real(slimit), Real(1/ slimit)), clamp(D(1, 1), Real(slimit), Real(1 / slimit)), clamp(D(2, 2), Real(slimit), Real(1 / slimit)));
+		eigens[pId] = Coord(D(0, 0), D(1, 1), D(2, 2));
+		matU[pId] = U;
+		matV[pId] = V;
+		F[pId] = U*D*V.transpose();
 		//RU[pId] = Matrix::identityMatrix();
 
 // 		Matrix F_i = F[pId];
-// 		if (pId == position.size() - 18)
+// 		if (pId == position.size() - FIXEDNUM - 2)
 // 		{
 // 			Matrix F_i = F[pId];
-// 			Coord eigen_i = eigens[pId];
+// 			polarDecomposition(F_i, R, U, D, V);
+// 			Coord eigen_i = Coord(D(0, 0), D(1, 1), D(2, 2));
 // 			printf("%d \n", pId);
 // 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
 // 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", U(0, 0), U(0, 1), U(0, 2), U(1, 0), U(1, 1), U(1, 2), U(2, 0), U(2, 1), U(2, 2));
 // 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", V(0, 0), V(0, 1), V(0, 2), V(1, 0), V(1, 1), V(1, 2), V(2, 0), V(2, 1), V(2, 2));
 // 			printf("%f %f %f \n \n", eigen_i[0], eigen_i[1], eigen_i[2]);
+// 			printf("Determinant %f \n \n", U.determinant());
 // 		}
 // 		printf("%f %f %f \n %f %f %f \n %f %f %f \n \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
 	}
@@ -156,7 +166,7 @@ namespace Physika
 		Real l_min = 0.2;
 
 		Real value = (l_max - l) / (l_max - l_min);
-		blend[pId] = clamp(value, Real(0), Real(1));
+		blend[pId] = 1;// clamp(value, Real(0), Real(1));
 	}
 
 
@@ -480,7 +490,8 @@ namespace Physika
 		DeviceArray<Coord> y_next,
 		DeviceArray<Coord> y_pre,
 		DeviceArray<Coord> y_old,
-		DeviceArray<Matrix> Rot,
+		DeviceArray<Matrix> matU,
+		DeviceArray<Matrix> matV,
 		DeviceArray<Coord> eigen,
 		DeviceArray<Matrix> F,
 		NeighborList<NPair> restShapes,
@@ -501,10 +512,14 @@ namespace Physika
 		Real lambda_i2 = eigen[pId][1];
 		Real lambda_i3 = eigen[pId][2];
 
-		Matrix PK1_i = Rot[pId]*model->getStressTensorPositive(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
-		Matrix PK2_i = Rot[pId]*model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3)*Rot[pId].transpose();
+		Matrix U_i = matU[pId];
+		Matrix V_i = matV[pId];
+		Matrix PK1_i = U_i*model->getStressTensorPositive(lambda_i1, lambda_i2, lambda_i3)*U_i.transpose();
+		//Matrix PK2_i = U_i*model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3)*U_i.transpose();
+		Matrix PK2_i = U_i*model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3)*V_i.transpose();
 
-		Real V_i = volume[pId];
+		Real Vol_i = volume[pId];
+		Matrix F_i = F[pId];
 
 		Coord y_pre_i = y_pre[pId];
 		Coord y_rest_i = restShapes.getElement(pId, 0).pos;
@@ -524,9 +539,10 @@ namespace Physika
 			{
 				Real weight = kernSmooth.Weight(r, horizon);
 
-				Real V_j = volume[j];
+				Real Vol_j = volume[j];
+				Matrix F_j = F[j];
 
-				const Real scale = V_i*V_j;
+				const Real scale = Vol_i*Vol_j;
 
 				const Real sw_ij = dt*dt*scale*weight;
 
@@ -534,19 +550,92 @@ namespace Physika
 				Real lambda_j2 = eigen[j][1];
 				Real lambda_j3 = eigen[j][2];
 
-				Matrix PK1_ij1 = PK1_i + Rot[j] * model->getStressTensorPositive(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
-				Matrix PK1_ij2 = PK2_i + Rot[j] * model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3)*Rot[j].transpose();
+				Matrix U_j = matU[j];
+				Matrix V_j = matV[j];
+				Matrix PK1_j = U_j * model->getStressTensorPositive(lambda_j1, lambda_j2, lambda_j3)*U_j.transpose();
+				//Matrix PK2_j = U_j * model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3)*U_j.transpose();
+				Matrix PK2_j = U_j * model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3)*V_j.transpose();
+				Matrix PK1_ij = PK1_i + PK1_j;
+				Matrix PK2_ij = PK2_i + PK2_j;
 				
-
 				Coord y_pre_ij = (y_pre_i - y_pre_j);
 
-				Matrix ratio_ij = PK1_ij2*PK1_ij1.inverse();
-				Real projected_ij = (ratio_ij*y_pre_ij).norm();
-				Real l_ij = r / projected_ij;
-				l_ij = l_ij > 1 ? 1 : l_ij;
+// 				Matrix ratio_ij = PK1_ij2*PK1_ij1.inverse();
+// 				Real r_projected_ij = (ratio_ij*y_pre_ij).norm();
 
-				source_i += sw_ij*PK1_ij1*y_pre_j + l_ij*sw_ij*PK1_ij2*y_pre_ij;
-				mat_i += sw_ij*PK1_ij1;
+// 				if (pId == y_next.size()-6 && j == y_next.size() - 2)
+// 				{
+// 					printf("Testing Stretch \n");
+// 					printf("%f %f %f \n", y_pre_ij[0], y_pre_ij[1], y_pre_ij[2]);
+// 					Coord x_i = F_i*(y_rest_i - np_j.pos);
+// 					printf("%f %f %f \n", x_i[0], x_i[1], x_i[2]);
+// 					printf("%f %f %f \n %f %f %f \n %f %f %f \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
+// 					Coord x_j = F_j*(y_rest_i - np_j.pos);
+// 					printf("%f %f %f \n", x_j[0], x_j[1], x_j[2]);
+// 					printf("%f %f %f \n %f %f %f \n %f %f %f \n", F_j(0, 0), F_j(0, 1), F_j(0, 2), F_j(1, 0), F_j(1, 1), F_j(1, 2), F_j(2, 0), F_j(2, 1), F_j(2, 2));
+// 				}
+// 				Real l_ij = y_pre_ij.norm() / r;
+// 				l_ij = clamp(l_ij, Real(0.01), Real(100));
+// 				Matrix RefPK_ij1 = model->getStressTensorPositive(l_ij, l_ij, l_ij);
+// 				Matrix RefPK_ij2 = model->getStressTensorNegative(l_ij, l_ij, l_ij);
+// 				Real r_ref_ij = (RefPK_ij2*RefPK_ij1.inverse()*y_pre_ij).norm();
+// 
+// 				l_ij = r_ref_ij / r_projected_ij;
+
+// 				Matrix ratio_ij = PK1_ij2*PK1_ij1.inverse();
+// 				Real r_projected_ij = (ratio_ij*y_pre_ij).norm();
+// 				Real l_ij = r / r_projected_ij;
+ 				Real l_ij = 1;// l_ij > 1 ? 1 : l_ij;
+
+				//handling shape inversion
+				/*
+//				Coord y_projected_ij = Matrix::identityMatrix()*(y_rest_i - np_j.pos);
+				Coord y_projected_ij = (F[pId]+F[j])*(y_rest_i - np_j.pos);
+				y_projected_ij = y_projected_ij.normalize();
+				if (y_projected_ij.dot(y_pre_ij) <= 0)
+				{
+//					l_ij *= -1;
+// 					printf("Inverted*************** \n");
+ 					y_pre_j = 2 * y_pre_i - y_pre_j;
+ 					y_pre_ij = (y_pre_i - y_pre_j);
+//					y_pre_ij = - (y_pre_i - y_pre_j);
+				}
+				*/
+
+				Coord x_ij = y_rest_i - np_j.pos;
+				Coord x_i = F_i*x_ij;
+				Coord x_j = F_j*x_ij;
+				Coord y_pre_ij_i = y_pre_ij;
+				Coord y_pre_ij_j = y_pre_ij;
+
+				Coord y_pre_j_i = y_pre_j;
+				Coord y_pre_j_j = y_pre_j;
+
+
+// 				if (x_i.dot(y_pre_ij) < 0)
+// 				{
+// 					y_pre_ij_i = - y_pre_ij;
+// 					y_pre_j_i = 2 * y_pre_i - y_pre_j;
+// 				}
+// 
+// 				if (x_j.dot(y_pre_ij) < 0)
+// 				{
+// 					y_pre_ij_j = - y_pre_ij;
+// 					y_pre_j_j = 2 * y_pre_i - y_pre_j;
+// 				}
+//				source_i -= sw_ij*PK2_i*y_pre_ij_i;
+
+ 				//source_i += sw_ij*PK2_i*y_pre_ij_i;
+				source_i += sw_ij*PK2_i*x_ij;
+ 				source_i += sw_ij*PK1_i*y_pre_j_i;
+
+				//source_i += sw_ij*PK2_j*y_pre_ij_j;
+				source_i += sw_ij*PK2_j*x_ij;
+				source_i += sw_ij*PK1_j*y_pre_j_j;
+
+// 				source_i += sw_ij*PK2_ij*y_pre_ij;
+// 				source_i += sw_ij*PK1_ij*y_pre_j;
+				mat_i += sw_ij*PK1_ij;
 
 				//printf("%f \n", sw_ij* 480000 * 2.0);
 			}
@@ -622,7 +711,8 @@ namespace Physika
 		m_invK.resize(this->m_position.getElementCount());
 
 		m_eigenValues.resize(this->m_position.getElementCount());
-		m_Rot.resize(this->m_position.getElementCount());
+		m_matU.resize(this->m_position.getElementCount());
+		m_matV.resize(this->m_position.getElementCount());
 		m_volume.resize(this->m_position.getElementCount());
 
 		m_energy.resize(this->m_position.getElementCount());
@@ -679,7 +769,7 @@ namespace Physika
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= position.size()) return;
 
-		if (pId < 16 || pId >= position.size()-16 )
+		if (pId < FIXEDNUM || pId >= position.size()- FIXEDNUM)
 		{
 			bFixed[pId] = true;
 			fixedPos[pId] = position[pId];
@@ -700,7 +790,7 @@ namespace Physika
 		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
 		if (pId >= fixedPos.size()) return;
 
-		if (pId >= fixedPos.size() - 16)
+		if (pId >= fixedPos.size() - FIXEDNUM)
 		{
 			fixedPos[pId] -= Coord(0.0025, 0, 0);
 		}
@@ -719,6 +809,10 @@ namespace Physika
 		if (bFixed[pId])
 		{
 			position[pId] = fixedPos[pId];
+		}
+		if (pId == position.size() - FIXEDNUM - 2)
+		{
+			printf("Pos %f \n", position[pId][0]);
 		}
 	}
 
@@ -762,10 +856,16 @@ namespace Physika
 		rotM(2, 2) = 1.0f;
 		Coord origin = position[0];
 		//position[pId] = origin + rotM*(position[pId] - origin);
-		position[pId][0] += 0.1*(gen.Generate() - 0.5);
-		position[pId][1] += 0.1*(gen.Generate() - 0.5);
-		position[pId][2] += 0.1*(gen.Generate() - 0.5);
+// 		position[pId][0] += 0.1*(gen.Generate() - 0.5);
+// 		position[pId][1] += 0.1*(gen.Generate() - 0.5);
+// 		position[pId][2] += 0.1*(gen.Generate() - 0.5);
 //		position[pId][1] = - position[pId][1] + 0.1;
+//		position[pId][1] += (0.5 - position[pId][1]) + 0.5;
+
+		if (pId >= FIXEDNUM && pId < position.size() - FIXEDNUM)
+		{
+			position[pId] -= Coord(0.0035, 0, 0);
+		}
 	}
 
 	template <typename Coord>
@@ -779,9 +879,9 @@ namespace Physika
 
 		grad[pId] = y_next[pId] - y_pre[pId];
 
-		//if (pId == grad.size() - 20)
+		if (pId == grad.size() - FIXEDNUM - 2)
 // 		if (grad[pId].norm() > 0.00001)
-// 			printf("Thread ID %d: %f, %f, %f \n", pId, grad[pId][0], grad[pId][1], grad[pId][2]);
+ 			printf("Thread ID %d: %f, %f, %f \n", pId, grad[pId][0], grad[pId][1], grad[pId][2]);
 	}
 
 	template <typename Real, typename Coord>
@@ -900,7 +1000,8 @@ namespace Physika
 				m_F,
 				m_eigenValues,
 				m_invK,
-				m_Rot,
+				m_matU,
+				m_matV,
 				y_current,
 				this->m_restShape.getValue(),
 				this->m_horizon.getValue());
@@ -916,7 +1017,8 @@ namespace Physika
 				y_next,
 				y_current,
 				m_position_old,
-				m_Rot,
+				m_matU,
+				m_matV,
 				m_eigenValues,
 				m_F,
 				this->m_restShape.getValue(),
@@ -951,11 +1053,16 @@ namespace Physika
 				y_next);
 			cuSynchronize();
 
+			HM_EnforceFixedPos << <pDims, BLOCK_SIZE >> > (
+				y_next,
+				m_bFixed,
+				m_fixedPos);
+
 			//stepsize adjustment
-			Real totalE_current;
-			Real totalE_next;
-			getEnergy(totalE_current, y_current);
-			getEnergy(totalE_next, y_next);
+// 			Real totalE_current;
+// 			Real totalE_next;
+// 			getEnergy(totalE_current, y_current);
+// 			getEnergy(totalE_next, y_next);
 
 // 			printf("Current: %f Next: %f \n", totalE_current, totalE_next);
 
@@ -981,6 +1088,7 @@ namespace Physika
 			}
 			*/
 
+			/*
 			int step = 0;
 			if (bChebyshevAccOn)
 			{
@@ -993,7 +1101,7 @@ namespace Physika
 					y_current,
 					y_pre,
 					omega);
-			}
+			}*/
 
 
 			Function1Pt::copy(y_pre, y_current);
@@ -1058,7 +1166,8 @@ namespace Physika
 			m_F,
 			m_eigenValues,
 			m_invK,
-			m_Rot,
+			m_matU,
+			m_matV,
 			position,
 			this->m_restShape.getValue(),
 			this->m_horizon.getValue());

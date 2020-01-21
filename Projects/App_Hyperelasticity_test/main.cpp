@@ -62,7 +62,7 @@ void CreateScene()
 	hyper_test->setLambda(0);
 	child3->setElasticitySolver(hyper_test);
 //	child3->getSurfaceRender()->setColor(Vector3f(1, 1, 0));
-	child3->getElasticitySolver()->setIterationNumber(500);
+	child3->getElasticitySolver()->setIterationNumber(100);
 	child3->m_horizon.setValue(0.006);
 	child3->setVisible(true);
 

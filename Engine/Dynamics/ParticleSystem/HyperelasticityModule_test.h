@@ -127,6 +127,9 @@ namespace Physika {
 		COMM_FUNC virtual Matrix getStressTensorNegative(Real lambda1, Real lambda2, Real lambda3) override
 		{
 			Matrix D = (6 * s0 + s1)*Matrix::identityMatrix();
+			D(0, 0) *= lambda1;
+			D(1, 1) *= lambda2;
+			D(2, 2) *= lambda3;
 			return D;
 		}
 
@@ -179,9 +182,9 @@ namespace Physika {
 			Real sq3 = lambda3*lambda3;
 
 			Matrix D;
-			D(0, 0) = 2*sq2*sq3*constIII;
-			D(1, 1) = 2*sq3*sq1*constIII;
-			D(2, 2) = 2*sq1*sq2*constIII;
+			D(0, 0) = 2*sq2*sq3*constIII*lambda1;
+			D(1, 1) = 2*sq3*sq1*constIII*lambda2;
+			D(2, 2) = 2*sq1*sq2*constIII*lambda3;
 
 			return D;
 		}
@@ -296,9 +299,9 @@ namespace Physika {
 			}
 
 			Matrix D;
-			D(0, 0) = D1;
-			D(1, 1) = D2;
-			D(2, 2) = D3;
+			D(0, 0) = D1*lambda1;
+			D(1, 1) = D2*lambda2;
+			D(2, 2) = D3*lambda3;
 
 			return D;
 		}
@@ -417,9 +420,9 @@ namespace Physika {
 		COMM_FUNC virtual Matrix getStressTensorNegative(Real lambda1, Real lambda2, Real lambda3) override
 		{
 			Matrix D;
-			D(0, 0) = s0 / (lambda1*lambda1*lambda1*lambda1) / 3;
-			D(1, 1) = s0 / (lambda2*lambda2*lambda2*lambda2) / 3;
-			D(2, 2) = s0 / (lambda3*lambda3*lambda3*lambda3) / 3;
+			D(0, 0) = lambda1 * s0 / (lambda1*lambda1*lambda1*lambda1) / 3;
+			D(1, 1) = lambda2 * s0 / (lambda2*lambda2*lambda2*lambda2) / 3;
+			D(2, 2) = lambda3 * s0 / (lambda3*lambda3*lambda3*lambda3) / 3;
 			return D;
 		}
 
@@ -474,7 +477,8 @@ namespace Physika {
 		DeviceArray<Matrix> m_F;
 		DeviceArray<Matrix> m_invF;
 		DeviceArray<Matrix> m_invK;
-		DeviceArray<Matrix> m_Rot;
+		DeviceArray<Matrix> m_matU;
+		DeviceArray<Matrix> m_matV;
 
 		DeviceArray<Coord> y_pre;
 		DeviceArray<Coord> y_current;
