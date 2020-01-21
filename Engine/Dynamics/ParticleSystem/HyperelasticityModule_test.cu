@@ -792,7 +792,7 @@ namespace Physika
 
 		if (pId >= fixedPos.size() - FIXEDNUM)
 		{
-			fixedPos[pId] -= Coord(0.0025, 0, 0);
+			fixedPos[pId] -= Coord(0.0075, 0, 0);
 		}
 	}
 
@@ -856,16 +856,16 @@ namespace Physika
 		rotM(2, 2) = 1.0f;
 		Coord origin = position[0];
 		//position[pId] = origin + rotM*(position[pId] - origin);
-// 		position[pId][0] += 0.1*(gen.Generate() - 0.5);
-// 		position[pId][1] += 0.1*(gen.Generate() - 0.5);
-// 		position[pId][2] += 0.1*(gen.Generate() - 0.5);
+		position[pId][0] += 0.1*(gen.Generate() - 0.5);
+		position[pId][1] += 0.1*(gen.Generate() - 0.5);
+		position[pId][2] += 0.1*(gen.Generate() - 0.5);
 //		position[pId][1] = - position[pId][1] + 0.1;
 //		position[pId][1] += (0.5 - position[pId][1]) + 0.5;
 
-		if (pId >= FIXEDNUM && pId < position.size() - FIXEDNUM)
-		{
-			position[pId] -= Coord(0.0035, 0, 0);
-		}
+// 		if (pId >= FIXEDNUM && pId < position.size() - FIXEDNUM)
+// 		{
+// 			position[pId] -= Coord(0.0035, 0, 0);
+// 		}
 	}
 
 	template <typename Coord>
@@ -964,11 +964,11 @@ namespace Physika
 
 		Log::sendMessage(Log::User, "\n \n \n \n *************solver start!!!***************");
 
-// 		if (ind_num == 0)
-// 		{
-// 			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->m_position.getValue());
-// 			ind_num++;
-// 		}
+		if (ind_num == 0)
+		{
+			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->m_position.getValue());
+			ind_num++;
+		}
 
 		HM_AdjustFixedPos << <pDims, BLOCK_SIZE >> > (
 			m_bFixed,
