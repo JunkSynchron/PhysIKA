@@ -792,7 +792,7 @@ namespace Physika
 
 		if (pId >= fixedPos.size() - FIXEDNUM)
 		{
-			fixedPos[pId] -= Coord(0.0075, 0, 0);
+			fixedPos[pId] += Coord(0.0075, 0, 0);
 		}
 	}
 
