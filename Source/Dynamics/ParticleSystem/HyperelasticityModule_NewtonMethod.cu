@@ -8,7 +8,7 @@
 #include "Core/Utility/Function1Pt.h"
 #include "Core/Utility/math_utilities.h"
 
-namespace Physika
+namespace PhysIKA
 {
 	template <typename Real, typename Coord>
 	__global__ void computeDelta_vec(
@@ -787,14 +787,14 @@ namespace Physika
 	template<typename TDataType>
 	bool HyperelasticityModule_NewtonMethod<TDataType>::initializeImpl()
 	{
-		m_position_old.resize(this->m_position.getElementCount());
-		m_F.resize(this->m_position.getElementCount());
-		m_invK.resize(this->m_position.getElementCount());
-		m_firstPiolaKirchhoffStress.resize(this->m_position.getElementCount());
+		m_position_old.resize(this->inPosition()->getElementCount());
+		m_F.resize(this->inPosition()->getElementCount());
+		m_invK.resize(this->inPosition()->getElementCount());
+		m_firstPiolaKirchhoffStress.resize(this->inPosition()->getElementCount());
 
-		m_totalWeight.resize(this->m_position.getElementCount());
-		m_Sum_delta_x.resize(this->m_position.getElementCount());
-		m_source_items.resize(this->m_position.getElementCount() );
+		m_totalWeight.resize(this->inPosition()->getElementCount());
+		m_Sum_delta_x.resize(this->inPosition()->getElementCount());
+		m_source_items.resize(this->inPosition()->getElementCount() );
 
 		debug_pos_isNaN = false;
 		debug_v_isNaN = false;
@@ -815,17 +815,17 @@ namespace Physika
 		typedef typename TDataType::Matrix Matrix;
 
 
-		int numOfParticles = this->m_position.getElementCount();
+		int numOfParticles = this->inPosition()->getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 		HM_ComputeTotalWeight_newton << <pDims, BLOCK_SIZE >> > (
-			this->m_position.getValue(),
+			this->inPosition()->getValue(),
 			this->m_restShape.getValue(),
 			this->m_totalWeight,
-			this->m_horizon.getValue());
+			this->inHorizon()->getValue());
 		cuSynchronize();
 
 		{
-			Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
+			Reduction<Real>* pReduction = Reduction<Real>::Create(numOfParticles);
 			Real max_totalWeight = pReduction->maximum(this->m_totalWeight.getDataPtr(), numOfParticles);
 			printf("Max total weight: %f \n", max_totalWeight);
 		}
@@ -841,7 +841,7 @@ namespace Physika
 		typedef typename TDataType::Coord Coord;
 		typedef typename TDataType::Matrix Matrix;
 
-		int numOfParticles = this->m_position.getElementCount();
+		int numOfParticles = this->inPosition()->getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
 		this->m_displacement.reset();
@@ -859,7 +859,7 @@ namespace Physika
 
 		delta_y_pre.reset();
 		delta_y_next.reset();
-		Function1Pt::copy(m_position_old, this->m_position.getValue());
+		Function1Pt::copy(m_position_old, this->inPosition()->getValue());
 
 		// do Jacobi method Loop
 		bool newton_convergeFlag = false; // outer loop(newton method) converge or not
@@ -869,7 +869,7 @@ namespace Physika
 		int jacobi_total_iteNum = 0;
 		int	newton_maxIterations = 50;
 		int jacobi_maxIterations = 200;
-		double converge_threshold = 0.001f*this->m_horizon.getValue();
+		double converge_threshold = 0.001f*this->inHorizon()->getValue();
 		double relative_error_threshold = 0.001;
 
 		double newton_first_delta = 0.0;
@@ -888,9 +888,9 @@ namespace Physika
 				m_invK,
 				m_F,
 				m_Sum_delta_x,
-				this->m_position.getValue(),
+				this->inPosition()->getValue(),
 				this->m_restShape.getValue(),
-				this->m_horizon.getValue(),
+				this->inHorizon()->getValue(),
 				this->weightScale);
 			cuSynchronize();
 
@@ -898,7 +898,7 @@ namespace Physika
 				DeviceArray<Real> energy_particles(numOfParticles);
 				HM_ComputeTotalEnergy_Linear << <pDims, BLOCK_SIZE >> > (
 					energy_particles,
-					this->m_position.getValue(),
+					this->inPosition()->getValue(),
 					m_position_old,
 					m_F,
 					this->m_mu.getValue(),
@@ -907,7 +907,7 @@ namespace Physika
 					this->getParent()->getDt() );
 				cuSynchronize();
 
-				Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
+				Reduction<Real>* pReduction = Reduction<Real>::Create(numOfParticles);
 				Real current_energy = pReduction->accumulate(energy_particles.getDataPtr(), numOfParticles);
 				energy_particles.release();
 
@@ -929,10 +929,10 @@ namespace Physika
 				m_invK,
 				m_firstPiolaKirchhoffStress,
 				m_position_old,
-				this->m_position.getValue(),
+				this->inPosition()->getValue(),
 				m_Sum_delta_x,
 				this->m_restShape.getValue(),
-				this->m_horizon.getValue(),
+				this->inHorizon()->getValue(),
 				this->m_mu.getValue(),
 				this->m_lambda.getValue(),
 				mass, volume, this->getParent()->getDt(),
@@ -949,7 +949,7 @@ namespace Physika
 					m_invK,
 					m_Sum_delta_x,
 					this->m_restShape.getValue(),
-					this->m_horizon.getValue(),
+					this->inHorizon()->getValue(),
 					this->m_mu.getValue(),
 					this->m_lambda.getValue(),
 					mass, volume,
@@ -958,7 +958,7 @@ namespace Physika
 				cuSynchronize();
 
 				{
-					Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
+					Reduction<Real>* pReduction = Reduction<Real>::Create(numOfParticles);
 					DeviceArray<Real> Delta_y_norm(numOfParticles);
 					computeNorm_vec << <pDims, BLOCK_SIZE >> >(delta_y_next, Delta_y_norm);
 					cuSynchronize();
@@ -983,7 +983,7 @@ namespace Physika
 			jacobi_total_iteNum += jacobi_iteNum;
 
 			{
-				Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
+				Reduction<Real>* pReduction = Reduction<Real>::Create(numOfParticles);
 				DeviceArray<Real> Delta_y_norm(numOfParticles);
 
 				computeNorm_vec << <pDims, BLOCK_SIZE >> >(delta_y_next, Delta_y_norm);
@@ -1002,7 +1002,7 @@ namespace Physika
 			}
 
 			HM_UpdatePosition_delta_only << <pDims, BLOCK_SIZE >> > (
-				this->m_position.getValue(),
+				this->inPosition()->getValue(),
 				delta_y_next);
 			cuSynchronize();
 
@@ -1010,8 +1010,8 @@ namespace Physika
 		}
 
 		HM_UpdateVelocity_only << <pDims, BLOCK_SIZE >> > (
-			this->m_position.getValue(),
-			this->m_velocity.getValue(),
+			this->inPosition()->getValue(),
+			this->inVelocity()->getValue(),
 			m_position_old,
 			this->getParent()->getDt());
 		cuSynchronize();
@@ -1033,7 +1033,7 @@ namespace Physika
 		typedef typename TDataType::Coord Coord;
 		typedef typename TDataType::Matrix Matrix;
 
-		int numOfParticles = this->m_position.getElementCount();
+		int numOfParticles = this->inPosition()->getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
 		this->m_displacement.reset();
@@ -1051,7 +1051,7 @@ namespace Physika
 
 		delta_y_pre.reset();
 		delta_y_next.reset();
-		Function1Pt::copy(m_position_old, this->m_position.getValue());
+		Function1Pt::copy(m_position_old, this->inPosition()->getValue());
 
 		// do Jacobi method Loop
 		bool newton_convergeFlag = false; // outer loop(newton method) converge or not
@@ -1061,7 +1061,7 @@ namespace Physika
 		int jacobi_total_iteNum = 0;
 		int	newton_maxIterations = 50;
 		int jacobi_maxIterations = 200;
-		double converge_threshold = 0.001f*this->m_horizon.getValue();
+		double converge_threshold = 0.001f*this->inHorizon()->getValue();
 		double relative_error_threshold = 0.001;
 
 		double newton_first_delta = 0.0;
@@ -1076,9 +1076,9 @@ namespace Physika
 				m_invK,
 				m_F,
 				m_Sum_delta_x,
-				this->m_position.getValue(),
+				this->inPosition()->getValue(),
 				this->m_restShape.getValue(),
-				this->m_horizon.getValue(),
+				this->inHorizon()->getValue(),
 				this->weightScale);
 			cuSynchronize();
 
@@ -1095,10 +1095,10 @@ namespace Physika
 				m_invK,
 				m_firstPiolaKirchhoffStress,
 				m_position_old,
-				this->m_position.getValue(),
+				this->inPosition()->getValue(),
 				m_Sum_delta_x,
 				this->m_restShape.getValue(),
-				this->m_horizon.getValue(),
+				this->inHorizon()->getValue(),
 				this->m_mu.getValue(),
 				this->m_lambda.getValue(),
 				mass, volume, this->getParent()->getDt(),
@@ -1116,7 +1116,7 @@ namespace Physika
 					m_invK,
 					m_Sum_delta_x,
 					this->m_restShape.getValue(),
-					this->m_horizon.getValue(),
+					this->inHorizon()->getValue(),
 					this->m_mu.getValue(),
 					this->m_lambda.getValue(),
 					mass, volume,
@@ -1125,7 +1125,7 @@ namespace Physika
 				cuSynchronize();
 
 				{
-					Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
+					Reduction<Real>* pReduction = Reduction<Real>::Create(numOfParticles);
 					DeviceArray<Real> Delta_y_norm(numOfParticles);
 					computeNorm_vec << <pDims, BLOCK_SIZE >> >(delta_y_next, Delta_y_norm);
 					cuSynchronize();
@@ -1150,7 +1150,7 @@ namespace Physika
 			jacobi_total_iteNum += jacobi_iteNum;
 
 			{
-				Physika::Reduction<Real>* pReduction = Physika::Reduction<Real>::Create(numOfParticles);
+				Reduction<Real>* pReduction = Reduction<Real>::Create(numOfParticles);
 				DeviceArray<Real> Delta_y_norm(numOfParticles);
 
 				computeNorm_vec << <pDims, BLOCK_SIZE >> >(delta_y_next, Delta_y_norm);
@@ -1169,7 +1169,7 @@ namespace Physika
 			}
 
 			HM_UpdatePosition_delta_only << <pDims, BLOCK_SIZE >> > (
-				this->m_position.getValue(),
+				this->inPosition()->getValue(),
 				delta_y_next);
 			cuSynchronize();
 
@@ -1177,8 +1177,8 @@ namespace Physika
 		}
 
 		HM_UpdateVelocity_only << <pDims, BLOCK_SIZE >> > (
-			this->m_position.getValue(),
-			this->m_velocity.getValue(),
+			this->inPosition()->getValue(),
+			this->inPosition()->getValue(),
 			m_position_old,
 			this->getParent()->getDt());
 		cuSynchronize();

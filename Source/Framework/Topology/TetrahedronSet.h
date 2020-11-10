@@ -1,9 +1,9 @@
 #pragma once
 #include "TriangleSet.h"
-#include "Framework/ModuleTopology.h"
+#include "Framework/Framework/ModuleTopology.h"
 
 
-namespace Physika
+namespace PhysIKA
 {
 	template<typename TDataType>
 	class TetrahedronSet : public TriangleSet<TDataType>

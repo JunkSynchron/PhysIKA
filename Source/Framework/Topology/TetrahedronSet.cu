@@ -4,7 +4,7 @@
 #include <sstream>
 #include "Core/Utility.h"
 
-namespace Physika
+namespace PhysIKA
 {
 	template<typename TDataType>
 	TetrahedronSet<TDataType>::TetrahedronSet()

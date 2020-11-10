@@ -6,7 +6,7 @@
 #include "Dynamics/ParticleSystem/ElasticityModule.h"
 #include "Rendering/SurfaceMeshRender.h"
 
-using namespace Physika;
+using namespace PhysIKA;
 
 int main()
 {
@@ -17,13 +17,13 @@ int main()
 
 	std::shared_ptr<ParticleElasticBody<DataType3f>> bunny = std::make_shared<ParticleElasticBody<DataType3f>>();
 	root->addParticleSystem(bunny);
-	bunny->getRenderModule()->setColor(Vector3f(0, 1, 1));
+	//bunny->getRenderModule()->setColor(Vector3f(0, 1, 1));
 	bunny->setMass(1.0);
-	bunny->loadParticles("../Media/bunny/bunny_points.obj");
-	bunny->loadSurface("../Media/bunny/bunny_mesh.obj");
+	bunny->loadParticles("../../Media/bunny/bunny_points.obj");
+	bunny->loadSurface("../../Media/bunny/bunny_mesh.obj");
 	bunny->translate(Vector3f(0.5, 0.2, 0.5));
 	bunny->setVisible(true);
-	bunny->getSurfaceRender()->setColor(Vector3f(1, 1, 0));
+	//bunny->getSurfaceRender()->setColor(Vector3f(1, 1, 0));
 	bunny->getElasticitySolver()->setIterationNumber(10);
 
 	GLApp window;

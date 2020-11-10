@@ -13,7 +13,7 @@
 #pragma once
 #include "ElasticityModule.h"
 
-namespace Physika {
+namespace PhysIKA {
 
 	template<typename TDataType>
 	class HyperelasticityModule_NewtonMethod : public ElasticityModule<TDataType>

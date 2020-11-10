@@ -11,9 +11,8 @@
  */
 #pragma once
 #include "ElasticityModule.h"
-#include "Core/Utility/Reduction.h"
 
-namespace Physika {
+namespace PhysIKA {
 
 	/**
 	 * @brief Basis Function

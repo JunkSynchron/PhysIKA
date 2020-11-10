@@ -7,7 +7,7 @@
 
 
 
-namespace Physika 
+namespace PhysIKA
 {
 	
 	//-test: to find all the deformation gradient matrices
@@ -231,7 +231,7 @@ namespace Physika
 	//-test: to find generalized inverse of all deformation gradient matrices
 	// these deformation gradients are mat3x3, may be singular
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
-	__global__ void get_GInverseOfF_PiolaKirchhoff(
+	GPU_FUNC void get_GInverseOfF_PiolaKirchhoff(
 		DeviceArray<Coord> position,
 		NeighborList<NPair> restShapes,
 		Real horizon,
@@ -272,7 +272,7 @@ namespace Physika
 	}
 
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
-	__global__ void getJacobiMethod_D_R_b_constants(
+	GPU_FUNC void getJacobiMethod_D_R_b_constants(
 		DeviceArray<Coord> position,
 		NeighborList<NPair> restShapes,
 		DeviceArray<Coord> velocity,
@@ -357,7 +357,7 @@ namespace Physika
 	
 	// one iteration of Jacobi method 
 	template <typename Coord, typename Matrix, typename NPair>
-	__global__ void JacobiStep(
+	GPU_FUNC void JacobiStep(
 		DeviceArray<Matrix> arrayR,
 		DeviceArray<int> arrayRIndex,
 		DeviceArray<Matrix> arrayDiagInverse,
@@ -389,7 +389,7 @@ namespace Physika
 
 	// cuda test function
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
-	__global__ void get_DeformationMat_F(
+	GPU_FUNC void get_DeformationMat_F(
 		DeviceArray<Coord> position,
 		NeighborList<NPair> restShapes,
 		Real horizon,
@@ -429,7 +429,7 @@ namespace Physika
 	}
 
 	template <typename Real, typename Coord>
-	__global__ void computeDelta_vec_const(
+	GPU_FUNC void computeDelta_vec_const(
 		DeviceArray<Coord> vec1,
 		Coord vec2,
 		DeviceArray<Real> delta_norm)
@@ -441,7 +441,7 @@ namespace Physika
 	}
 
 	template <typename Real, typename Coord>
-	__global__ void computeDelta_vec(
+	GPU_FUNC void computeDelta_vec(
 		DeviceArray<Coord> vec1,
 		DeviceArray<Coord> vec2,
 		DeviceArray<Real> delta_norm)
@@ -453,7 +453,7 @@ namespace Physika
 	}
 
 	template <typename Real, typename Matrix>
-	__global__ void computeDelta_mat_const(
+	GPU_FUNC void computeDelta_mat_const(
 		DeviceArray<Matrix> mat1,
 		Matrix mat2,
 		DeviceArray<Real> delta_norm)
@@ -465,7 +465,7 @@ namespace Physika
 	}
 
 	template <typename Real, typename Matrix>
-	__global__ void computeDelta_mat(
+	GPU_FUNC void computeDelta_mat(
 		DeviceArray<Matrix> mat1,
 		DeviceArray<Matrix> mat2,
 		DeviceArray<Real> delta_norm)

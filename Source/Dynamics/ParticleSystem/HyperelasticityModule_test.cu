@@ -10,7 +10,7 @@
 
 #include "Hyperelasticity_computation_helper.cu"
 
-namespace Physika
+namespace PhysIKA
 {
 #define FIXEDNUM 16
 
@@ -706,34 +706,34 @@ namespace Physika
 	template<typename TDataType>
 	bool HyperelasticityModule_test<TDataType>::initializeImpl()
 	{
-		m_F.resize(this->m_position.getElementCount());
-		m_invF.resize(this->m_position.getElementCount());
-		m_invK.resize(this->m_position.getElementCount());
+		m_F.resize(this->inPosition()->getElementCount());
+		m_invF.resize(this->inPosition()->getElementCount());
+		m_invK.resize(this->inPosition()->getElementCount());
 
-		m_eigenValues.resize(this->m_position.getElementCount());
-		m_matU.resize(this->m_position.getElementCount());
-		m_matV.resize(this->m_position.getElementCount());
-		m_volume.resize(this->m_position.getElementCount());
+		m_eigenValues.resize(this->inPosition()->getElementCount());
+		m_matU.resize(this->inPosition()->getElementCount());
+		m_matV.resize(this->inPosition()->getElementCount());
+		m_volume.resize(this->inPosition()->getElementCount());
 
-		m_energy.resize(this->m_position.getElementCount());
-		m_gradient.resize(this->m_position.getElementCount());
+		m_energy.resize(this->inPosition()->getElementCount());
+		m_gradient.resize(this->inPosition()->getElementCount());
 
-		y_pre.resize(this->m_position.getElementCount());
-		y_next.resize(this->m_position.getElementCount());
-		y_current.resize(this->m_position.getElementCount());
+		y_pre.resize(this->inPosition()->getElementCount());
+		y_next.resize(this->inPosition()->getElementCount());
+		y_current.resize(this->inPosition()->getElementCount());
 
-		m_source.resize(this->m_position.getElementCount());
-		m_A.resize(this->m_position.getElementCount());
+		m_source.resize(this->inPosition()->getElementCount());
+		m_A.resize(this->inPosition()->getElementCount());
 
-		m_fraction.resize(this->m_position.getElementCount());
+		m_fraction.resize(this->inPosition()->getElementCount());
 
-		m_bFixed.resize(this->m_position.getElementCount());
-		m_fixedPos.resize(this->m_position.getElementCount());
+		m_bFixed.resize(this->inPosition()->getElementCount());
+		m_fixedPos.resize(this->inPosition()->getElementCount());
 
 		initializeVolume();
 		initializeFixed();
 
-		m_reduce = Reduction<Real>::Create(this->m_position.getElementCount());
+		m_reduce = Reduction<Real>::Create(this->inPosition()->getElementCount());
 
 		return ElasticityModule::initializeImpl();
 	}
@@ -753,7 +753,7 @@ namespace Physika
 	template<typename TDataType>
 	void HyperelasticityModule_test<TDataType>::initializeVolume()
 	{
-		int numOfParticles = this->m_position.getElementCount();
+		int numOfParticles = this->inPosition()->getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
 		HM_InitVolume << <pDims, BLOCK_SIZE >> > (m_volume);
@@ -819,10 +819,10 @@ namespace Physika
 	template<typename TDataType>
 	void HyperelasticityModule_test<TDataType>::initializeFixed()
 	{
-		int numOfParticles = this->m_position.getElementCount();
+		int numOfParticles = this->inPosition()->getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
-		HM_InitFixedPos << <pDims, BLOCK_SIZE >> > (m_bFixed, m_fixedPos, this->m_position.getValue());
+		HM_InitFixedPos << <pDims, BLOCK_SIZE >> > (m_bFixed, m_fixedPos, this->inPosition()->getValue());
 	}
 
 
@@ -957,7 +957,7 @@ namespace Physika
 	template<typename TDataType>
 	void HyperelasticityModule_test<TDataType>::solveElasticityImplicit()
 	{
-		int numOfParticles = this->m_position.getElementCount();
+		int numOfParticles = this->inPosition()->getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
 		this->m_weights.reset();
@@ -966,7 +966,7 @@ namespace Physika
 
 		if (ind_num == 0)
 		{
-			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->m_position.getValue());
+			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->inPosition()->getValue());
 			ind_num++;
 		}
 
@@ -975,16 +975,16 @@ namespace Physika
 			m_fixedPos);
 
 		HM_EnforceFixedPos << <pDims, BLOCK_SIZE >> > (
-			this->m_position.getValue(),
+			this->inPosition()->getValue(),
 			m_bFixed,
 			m_fixedPos);
 
 		/**************************** Jacobi method ************************************************/
 		// initialize y_now, y_next_iter
-		Function1Pt::copy(y_pre, this->m_position.getValue());
-		Function1Pt::copy(y_current, this->m_position.getValue());
-		Function1Pt::copy(y_next, this->m_position.getValue());
-		Function1Pt::copy(m_position_old, this->m_position.getValue());
+		Function1Pt::copy(y_pre, this->inPosition()->getValue());
+		Function1Pt::copy(y_current, this->inPosition()->getValue());
+		Function1Pt::copy(y_next, this->inPosition()->getValue());
+		Function1Pt::copy(m_position_old, this->inPosition()->getValue());
 
 		// do Jacobi method Loop
 		bool convergeFlag = false; // converge or not
@@ -1004,7 +1004,7 @@ namespace Physika
 				m_matV,
 				y_current,
 				this->m_restShape.getValue(),
-				this->m_horizon.getValue());
+				this->inHorizon()->getValue());
 			cuSynchronize();
 
 			HM_Blend << <pDims, BLOCK_SIZE >> > (
@@ -1022,7 +1022,7 @@ namespace Physika
 				m_eigenValues,
 				m_F,
 				this->m_restShape.getValue(),
-				this->m_horizon.getValue(),
+				this->inHorizon()->getValue(),
 				m_volume, this->getParent()->getDt(),
 				m_energyType,
 				m_fraction);
@@ -1034,7 +1034,7 @@ namespace Physika
 				m_F,
 				this->m_restShape.getValue(),
 				m_volume,
-				this->m_horizon.getValue(),
+				this->inHorizon()->getValue(),
 				this->getParent()->getDt(),
 				m_fraction);
 
@@ -1116,8 +1116,8 @@ namespace Physika
 		}
 
 		test_HM_UpdatePosition << <pDims, BLOCK_SIZE >> > (
-			this->m_position.getValue(),
-			this->m_velocity.getValue(),
+			this->inPosition()->getValue(),
+			this->inVelocity()->getValue(),
 			y_next,
 			m_position_old,
 			this->getParent()->getDt());
@@ -1154,7 +1154,7 @@ namespace Physika
 	template<typename TDataType>
 	void HyperelasticityModule_test<TDataType>::getEnergy(Real& totalEnergy, DeviceArray<Coord>& position)
 	{
-		int numOfParticles = this->m_position.getElementCount();
+		int numOfParticles = this->inPosition()->getElementCount();
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
 		HM_EnforceFixedPos << <pDims, BLOCK_SIZE >> > (
@@ -1170,7 +1170,7 @@ namespace Physika
 			m_matV,
 			position,
 			this->m_restShape.getValue(),
-			this->m_horizon.getValue());
+			this->inHorizon()->getValue());
 
 		HM_ComputeEnergy <Real, Coord, Matrix> << <pDims, BLOCK_SIZE >> > (
 			m_energy,
