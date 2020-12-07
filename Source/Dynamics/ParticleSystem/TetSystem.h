@@ -16,7 +16,7 @@ namespace PhysIKA
 	*
 	*/
 	template<typename TDataType>
-	class TetSystem : public ParticleSystem<TDataType>
+	class TetSystem : public Node
 	{
 		DECLARE_CLASS_1(TetSystem, TDataType)
 	public:
@@ -32,9 +32,6 @@ namespace PhysIKA
 		//void loadTets(Coord lo, Coord hi, Real distance);
 		//void loadTets(Coord center, Real r, Real distance);
 		void loadTets(std::string filename);
-
-		virtual bool translate(Coord t) override;
-		virtual bool scale(Real s) override;
 
 
 		void updateTopology() override;
