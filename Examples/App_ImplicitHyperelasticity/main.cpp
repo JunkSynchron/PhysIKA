@@ -41,6 +41,34 @@ void RecieveLogMessage(const Log::Message& m)
 
 void CreateScene()
 {
+	//SceneGraph& scene = SceneGraph::getInstance();
+
+	//std::shared_ptr<StaticBoundary<DataType3f>> root = scene.createNewScene<StaticBoundary<DataType3f>>();
+	//root->loadCube(Vector3f(0), Vector3f(1), 0.005, true);
+
+	//std::shared_ptr<ParticleElasticBody<DataType3f>> child3 = std::make_shared<ParticleElasticBody<DataType3f>>();
+	//root->addParticleSystem(child3);
+
+	//auto ptRender1 = std::make_shared<PointRenderModule>();
+	//ptRender1->setColor(Vector3f(0, 1, 1));
+	//child3->addVisualModule(ptRender1);
+
+	//child3->setMass(1.0);
+	//child3->loadParticles("../../Media/bunny/bunny_points.obj");
+	//child3->loadSurface("../../Media/bunny/bunny_mesh.obj");
+	//child3->translate(Vector3f(0.3, 0.2, 0.5));
+	//child3->setVisible(true);
+	//auto hyper = std::make_shared<HyperelasticityModule_test<DataType3f>>();
+	////hyper->setEnergyFunction(HyperelasticityModule<DataType3f>::Quadratic);
+	//child3->setElasticitySolver(hyper);
+	//child3->getElasticitySolver()->setIterationNumber(10);
+
+	//auto sRender = std::make_shared<SurfaceMeshRender>();
+	//child3->getSurfaceNode()->addVisualModule(sRender);
+	//sRender->setColor(Vector3f(1, 1, 0));
+
+	 //load a rectangular solid
+
 	SceneGraph& scene = SceneGraph::getInstance();
 
 	std::shared_ptr<StaticBoundary<DataType3f>> root = scene.createNewScene<StaticBoundary<DataType3f>>();
@@ -54,19 +82,19 @@ void CreateScene()
 	child3->addVisualModule(ptRender1);
 
 	child3->setMass(1.0);
-	child3->loadParticles("../../Media/bunny/bunny_points.obj");
-	child3->loadSurface("../../Media/bunny/bunny_mesh.obj");
-	child3->translate(Vector3f(0.3, 0.2, 0.5));
-	child3->setVisible(false);
+	Vector3f center(0.0, 0.0, 0.0);
+	Vector3f rectangle(0.06, 0.05, 0.05);
+	child3->loadParticles(center- rectangle, center + rectangle, 0.005);
+	
+	child3->translate(Vector3f(0.5, 0.2, 0.5));
+	double x_border = 0.5;
+	child3->setVisible(true);
 	auto hyper = std::make_shared<HyperelasticityModule_test<DataType3f>>();
 	//hyper->setEnergyFunction(HyperelasticityModule<DataType3f>::Quadratic);
 	child3->setElasticitySolver(hyper);
 	child3->getElasticitySolver()->setIterationNumber(10);
 
-	auto sRender = std::make_shared<SurfaceMeshRender>();
-	child3->getSurfaceNode()->addVisualModule(sRender);
-	sRender->setColor(Vector3f(1, 1, 0));
-
+	
 
 /*	SceneGraph& scene = SceneGraph::getInstance();
 

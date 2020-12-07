@@ -12,7 +12,7 @@
 
 namespace PhysIKA
 {
-#define FIXEDNUM 16
+#define FIXEDNUM 441
 
 	template<typename Real, typename Matrix>
 	__device__ HyperelasticityModel<Real, Matrix>* getElasticityModel(EnergyType type)
@@ -150,7 +150,7 @@ namespace PhysIKA
 // 		printf("%f %f %f \n %f %f %f \n %f %f %f \n \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
 	}
 
-
+	//¼ì²éÌØÕ÷Öµ
 	template <typename Real, typename Coord>
 	__global__ void HM_Blend(
 		DeviceArray<Real> blend,
@@ -729,6 +729,7 @@ namespace PhysIKA
 
 		m_bFixed.resize(this->inPosition()->getElementCount());
 		m_fixedPos.resize(this->inPosition()->getElementCount());
+		this->m_points_move_type.resize(this->inPosition()->getElementCount());
 
 		initializeVolume();
 		initializeFixed();
@@ -781,6 +782,26 @@ namespace PhysIKA
 		}
 	}
 
+	__global__ void HM_InitPointsMoveType(
+		DeviceArray<int> m_points_move_type
+	)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= m_points_move_type.size()) return;
+
+		if (pId < FIXEDNUM) {
+			m_points_move_type[pId] = 1;
+		}
+		if (pId >= m_points_move_type.size() - FIXEDNUM)
+		{
+			m_points_move_type[pId] = 2;
+		}
+		else
+		{
+			m_points_move_type[pId] = 0;
+		}
+	}
+
 	template <typename Coord>
 	__global__ void HM_AdjustFixedPos(
 		DeviceArray<bool> bFixed,
@@ -792,7 +813,47 @@ namespace PhysIKA
 
 		if (pId >= fixedPos.size() - FIXEDNUM)
 		{
-			fixedPos[pId] += Coord(0.0075, 0, 0);
+			fixedPos[pId] -= Coord(0.001, 0, 0);
+		}
+	}
+
+	template <typename Coord>
+	__global__ void HM_AdjustFixedPos_move(
+		int adjust_type,
+		DeviceArray<int> m_points_move_type,
+		DeviceArray<Coord> fixedPos,
+		Coord move_length,
+		double x_border
+	)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= fixedPos.size()) return;
+
+		if (m_points_move_type[pId] == adjust_type)
+		{
+			fixedPos[pId] += move_length;
+			//fixedPos[pId] += Coord(0.0075, 0, 0);
+			if (fixedPos[pId][0] <= x_border) {
+				m_points_move_type[pId] = 0;
+			}
+		}
+	}
+
+	template <typename Coord, typename Matrix>
+	__global__ void HM_AdjustFixedPos_rotate(
+		int adjust_type,
+		DeviceArray<int> m_points_move_type,
+		DeviceArray<Coord> fixedPos,
+		Matrix rotate_mat
+	)
+	{
+		int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+		if (pId >= fixedPos.size()) return;
+
+		if (m_points_move_type[pId] == adjust_type)
+		{
+			fixedPos[pId] = rotate_mat * fixedPos[pId];
+			//fixedPos[pId] += Coord(0.0075, 0, 0);
 		}
 	}
 
@@ -823,6 +884,7 @@ namespace PhysIKA
 		uint pDims = cudaGridSize(numOfParticles, BLOCK_SIZE);
 
 		HM_InitFixedPos << <pDims, BLOCK_SIZE >> > (m_bFixed, m_fixedPos, this->inPosition()->getValue());
+		HM_InitPointsMoveType << <pDims, BLOCK_SIZE >> > (m_points_move_type);
 	}
 
 
@@ -970,9 +1032,13 @@ namespace PhysIKA
 			ind_num++;
 		}
 
-		HM_AdjustFixedPos << <pDims, BLOCK_SIZE >> > (
-			m_bFixed,
-			m_fixedPos);
+
+		HM_AdjustFixedPos_move << <pDims, BLOCK_SIZE >> > (
+			2,
+			m_points_move_type,
+			m_fixedPos,
+			Coord(-0.005, 0.0, 0.0),
+			0.5);
 
 		HM_EnforceFixedPos << <pDims, BLOCK_SIZE >> > (
 			this->inPosition()->getValue(),

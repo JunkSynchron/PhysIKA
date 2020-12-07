@@ -489,6 +489,7 @@ namespace PhysIKA {
 		Reduction<Real>* m_reduce;
 
 		DeviceArray<bool> m_bFixed;
+		DeviceArray<int> m_points_move_type;
 		DeviceArray<Coord> m_fixedPos;
 
 		bool bChebyshevAccOn = false;
