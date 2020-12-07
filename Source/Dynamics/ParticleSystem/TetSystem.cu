@@ -114,4 +114,20 @@ namespace PhysIKA
 		return Node::resetStatus();
 	}
 
+
+	template<typename TDataType>
+	bool TetSystem<TDataType>::translate(Coord t)
+	{
+		m_tethedrons->translate(t);
+		return true;
+	}
+
+
+	template<typename TDataType>
+	bool TetSystem<TDataType>::scale(Real s)
+	{
+		m_tethedrons->scale(s);
+		return true;
+	}
+
 }

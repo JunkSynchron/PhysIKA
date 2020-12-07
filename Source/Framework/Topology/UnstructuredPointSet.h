@@ -4,8 +4,8 @@
 
 namespace PhysIKA
 {
-	template<typename Coord>
-	class UnstructuredPointSet : public PointSet<Coord>
+	template<typename DataType3f>
+	class UnstructuredPointSet : public PointSet<DataType3f>
 	{
 	public:
 		UnstructuredPointSet();
@@ -14,5 +14,11 @@ namespace PhysIKA
 	private:
 	};
 
+
+#ifdef PRECISION_FLOAT
+	template class UnstructuredPointSet<DataType3f>;
+#else
+	template class UnstructuredPointSet<DataType3d>;
+#endif
 }
 

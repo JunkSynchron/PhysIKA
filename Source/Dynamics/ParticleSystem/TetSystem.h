@@ -33,6 +33,8 @@ namespace PhysIKA
 		//void loadTets(Coord center, Real r, Real distance);
 		void loadTets(std::string filename);
 
+		virtual bool translate(Coord t);
+		virtual bool scale(Real s);
 
 		void updateTopology() override;
 		bool resetStatus() override;
@@ -70,6 +72,9 @@ namespace PhysIKA
 
 		Quaternion<Real> m_quaternion;
 		
+		std::shared_ptr<TetrahedronSet<TDataType>> derivedTopology() {
+			return m_tethedrons;
+		}
 
 	public:
 		void advance(Real dt) override;

@@ -30,8 +30,21 @@ namespace PhysIKA
 	template<typename TDataType>
 	void TetrahedronSet<TDataType>::setTetrahedrons(std::vector<Tetrahedron>& tetrahedrons)
 	{
+		std::vector<Triangle> triangles;
+
 		m_tethedrons.resize(tetrahedrons.size());
 		Function1Pt::copy(m_tethedrons, tetrahedrons);
+
+		for(int i = 0; i < m_tethedrons.size(); i++)
+		{
+			auto tet = tetrahedrons[i];
+			triangles.push_back(Triangle(tet[0], tet[1], tet[2]));
+			triangles.push_back(Triangle(tet[1], tet[2], tet[3]));
+			triangles.push_back(Triangle(tet[2], tet[3], tet[0]));
+			triangles.push_back(Triangle(tet[3], tet[0], tet[1]));
+		}
+
+		this->setTriangles(triangles);
 	}
 
 	template<typename TDataType>

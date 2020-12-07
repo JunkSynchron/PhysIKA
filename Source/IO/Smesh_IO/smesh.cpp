@@ -25,6 +25,8 @@ void Smesh::loadFile(string filename)
     }
     int num_points = 0, point_dim = 0;
     filein >> num_points >> point_dim;
+	int dummy;
+	filein >> dummy >> dummy;
     m_points.resize(num_points, Vector3f(0.0f));
     for (int i = 0; i < num_points; ++i)
     {
@@ -37,17 +39,19 @@ void Smesh::loadFile(string filename)
     }
 
     filein >> part_str;
-    if (part_str != "*ELEMENTS")
-    {
-        cout << "after vertices, the first non-empty line must be '*ELEMENTS'." << endl;
-        return;
-    }
+//     if (part_str != "*ELEMENTS")
+//     {
+//         cout << "after vertices, the first non-empty line must be '*ELEMENTS'." << endl;
+//         return;
+//     }
 
     while (!filein.eof())
     {
         string ele_type = "";
-        int num_eles = 0, ele_dim = 0;
-        filein >> ele_type >> num_eles >> ele_dim;
+		int num_eles = 0, ele_dim = 0;
+		filein >> ele_type >> num_eles >> ele_dim;
+		int dummy;
+		filein >> dummy;
         if (ele_type == "LINE")
         {
             m_edges.resize(num_eles);
@@ -58,6 +62,7 @@ void Smesh::loadFile(string filename)
                 for (int j = 0; j < ele_dim; ++j)
                 {
                     filein >> m_edges[i][j];
+					m_edges[i][j] = m_edges[i][j] - 1;
                 }
             }
         }
@@ -71,6 +76,7 @@ void Smesh::loadFile(string filename)
                 for (int j = 0; j < ele_dim; ++j)
                 {
                     filein >> m_triangles[i][j];
+					m_triangles[i][j] = m_triangles[i][j] - 1;
                 }
             }
         }
@@ -84,6 +90,7 @@ void Smesh::loadFile(string filename)
                 for (int j = 0; j < ele_dim; ++j)
                 {
                     filein >> m_quads[i][j];
+					m_quads[i][j] = m_quads[i][j] - 1;
                 }
             }
         }
@@ -97,6 +104,7 @@ void Smesh::loadFile(string filename)
                 for (int j = 0; j < ele_dim; ++j)
                 {
                     filein >> m_tets[i][j];
+					m_tets[i][j] = m_tets[i][j] - 1;
                 }
             }
         }
@@ -110,6 +118,7 @@ void Smesh::loadFile(string filename)
                 for (int j = 0; j < ele_dim; ++j)
                 {
                     filein >> m_hexs[i][j];
+					m_hexs[i][j] = m_hexs[i][j] - 1;
                 }
             }
         }
