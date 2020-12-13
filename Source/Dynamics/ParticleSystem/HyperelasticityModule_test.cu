@@ -518,8 +518,6 @@ namespace PhysIKA
 
 			y_next[pId] = mat_i.inverse()*src_i;
 
-			//y_next[pId][0] = (mat_i.inverse()*src_i)[0];
-
 			delete model;
 		}
 
@@ -761,9 +759,9 @@ namespace PhysIKA
 
 		grad[pId] = y_next[pId] - y_pre[pId];
 
-		if (pId == grad.size() - FIXEDNUM - 2)
-// 		if (grad[pId].norm() > 0.00001)
- 			printf("Thread ID %d: %f, %f, %f \n", pId, grad[pId][0], grad[pId][1], grad[pId][2]);
+// 		if (pId == grad.size() - FIXEDNUM - 2)
+// // 		if (grad[pId].norm() > 0.00001)
+//  			printf("Thread ID %d: %f, %f, %f \n", pId, grad[pId][0], grad[pId][1], grad[pId][2]);
 	}
 
 	template <typename Real, typename Coord>
@@ -858,7 +856,7 @@ namespace PhysIKA
 			m_points_move_type,
 			m_fixedPos,
 			Coord(-0.0001, 0.0, 0.0),
-			0.492);
+			0.489);
 
 		HM_EnforceFixedPos << <pDims, BLOCK_SIZE >> > (
 			this->inPosition()->getValue(),
