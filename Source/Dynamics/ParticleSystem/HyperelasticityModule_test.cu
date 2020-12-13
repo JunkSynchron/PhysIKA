@@ -12,7 +12,7 @@
 
 namespace PhysIKA
 {
-#define FIXEDNUM 4
+#define FIXEDNUM 441
 
 	template<typename Real, typename Matrix>
 	__device__ HyperelasticityModel<Real, Matrix>* getElasticityModel(EnergyType type)
@@ -121,17 +121,50 @@ namespace PhysIKA
 		invK[pId] = V*D*U.transpose();
 		Matrix F_i = matL_i*V*D*U.transpose();
 
-		polarDecomposition(F_i, R, U, D, V);
-
-		const Real slimit = Real(0.01);
-		D(0, 0) = clamp(D(0, 0), Real(slimit), Real(1 / slimit));
-		D(1, 1) = clamp(D(1, 1), Real(slimit), Real(1 / slimit));
-		D(2, 2) = clamp(D(2, 2), Real(slimit), Real(1 / slimit));
 		//eigens[pId] = Coord(clamp(D(0, 0), Real(slimit), Real(1/ slimit)), clamp(D(1, 1), Real(slimit), Real(1 / slimit)), clamp(D(2, 2), Real(slimit), Real(1 / slimit)));
-		eigens[pId] = Coord(D(0, 0), D(1, 1), D(2, 2));
-		matU[pId] = U;
-		matV[pId] = V;
-		F[pId] = U*D*V.transpose();
+		
+		//Check whether the shape is inverted, if yes, use previously computed U and V instead
+		if (F_i.determinant() <= EPSILON)
+		{
+			U = matU[pId];
+			V = matV[pId];
+
+			Coord unit_x = Coord(1, 0, 0);
+			Coord unit_y = Coord(0, 1, 0);
+			Coord unit_z = Coord(0, 0, 1);
+
+			Matrix UtFV_i = U.transpose()*F_i*V;
+			Real l1 = unit_x.dot(UtFV_i*unit_x);
+			Real l2 = unit_y.dot(UtFV_i*unit_y);
+			Real l3 = unit_z.dot(UtFV_i*unit_z);
+
+			l1 = l1 > 0 ? l1 : -l1;
+			l2 = l2 > 0 ? l2 : -l2;
+			l3 = l3 > 0 ? l3 : -l3;
+
+			eigens[pId] = Coord(l1, l2, l3);
+
+			D(0, 0) = l1;
+			D(1, 1) = l2;
+			D(2, 2) = l3;
+
+			F[pId] = U * D*V.transpose();
+		}
+		else
+		{
+			polarDecomposition(F_i, R, U, D, V);
+
+			const Real slimit = Real(0.01);
+			D(0, 0) = clamp(D(0, 0), Real(slimit), Real(1 / slimit));
+			D(1, 1) = clamp(D(1, 1), Real(slimit), Real(1 / slimit));
+			D(2, 2) = clamp(D(2, 2), Real(slimit), Real(1 / slimit));
+
+			eigens[pId] = Coord(D(0, 0), D(1, 1), D(2, 2));
+			matU[pId] = U;
+			matV[pId] = V;
+			F[pId] = U * D*V.transpose();
+		}
+		
 		//RU[pId] = Matrix::identityMatrix();
 	}
 
@@ -521,6 +554,19 @@ namespace PhysIKA
 			delete model;
 		}
 
+
+		template <typename Matrix>
+		__global__ void HM_InitRotation(
+			DeviceArray<Matrix> U,
+			DeviceArray<Matrix> V)
+		{
+			int pId = threadIdx.x + (blockIdx.x * blockDim.x);
+			if (pId >= U.size()) return;
+
+			U[pId] = Matrix::identityMatrix();
+			V[pId] = Matrix::identityMatrix();
+		}
+
 	template<typename TDataType>
 	bool HyperelasticityModule_test<TDataType>::initializeImpl()
 	{
@@ -551,6 +597,11 @@ namespace PhysIKA
 
 		initializeVolume();
 		initializeFixed();
+
+		cuExecute(m_matU.size(),
+			HM_InitRotation,
+			m_matU,
+			m_matV);
 
 		m_reduce = Reduction<Real>::Create(this->inPosition()->getElementCount());
 
@@ -855,8 +906,8 @@ namespace PhysIKA
 			2,
 			m_points_move_type,
 			m_fixedPos,
-			Coord(-0.0001, 0.0, 0.0),
-			0.489);
+			Coord(-0.0075, 0.0, 0.0),
+			0.53);
 
 		HM_EnforceFixedPos << <pDims, BLOCK_SIZE >> > (
 			this->inPosition()->getValue(),
