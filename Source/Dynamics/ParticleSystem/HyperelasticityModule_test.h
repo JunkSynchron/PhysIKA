@@ -142,7 +142,7 @@ namespace PhysIKA {
 	public:
 		COMM_FUNC NeoHookeanModel() : HyperelasticityModel<Real, Matrix>()
 		{
-			density = Real(0.001);
+			density = Real(1.001);
 			s1 = Real(48000);
 			s0 = Real(12000);
 		}

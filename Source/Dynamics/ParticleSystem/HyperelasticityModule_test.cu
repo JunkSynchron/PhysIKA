@@ -12,7 +12,7 @@
 
 namespace PhysIKA
 {
-#define FIXEDNUM 441
+#define FIXEDNUM 4
 
 	template<typename Real, typename Matrix>
 	__device__ HyperelasticityModel<Real, Matrix>* getElasticityModel(EnergyType type)
@@ -35,7 +35,7 @@ namespace PhysIKA
 	template<typename TDataType>
 	HyperelasticityModule_test<TDataType>::HyperelasticityModule_test()
 		: ElasticityModule<TDataType>()
-		, m_energyType(StVK)
+		, m_energyType(Xuetal)
 	{
 	}
 
@@ -133,21 +133,6 @@ namespace PhysIKA
 		matV[pId] = V;
 		F[pId] = U*D*V.transpose();
 		//RU[pId] = Matrix::identityMatrix();
-
-// 		Matrix F_i = F[pId];
-// 		if (pId == position.size() - FIXEDNUM - 2)
-// 		{
-// 			Matrix F_i = F[pId];
-// 			polarDecomposition(F_i, R, U, D, V);
-// 			Coord eigen_i = Coord(D(0, 0), D(1, 1), D(2, 2));
-// 			printf("%d \n", pId);
-// 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
-// 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", U(0, 0), U(0, 1), U(0, 2), U(1, 0), U(1, 1), U(1, 2), U(2, 0), U(2, 1), U(2, 2));
-// 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", V(0, 0), V(0, 1), V(0, 2), V(1, 0), V(1, 1), V(1, 2), V(2, 0), V(2, 1), V(2, 2));
-// 			printf("%f %f %f \n \n", eigen_i[0], eigen_i[1], eigen_i[2]);
-// 			printf("Determinant %f \n \n", U.determinant());
-// 		}
-// 		printf("%f %f %f \n %f %f %f \n %f %f %f \n \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
 	}
 
 	//¼ì²éÌØÕ÷Öµ
@@ -166,7 +151,7 @@ namespace PhysIKA
 		Real l_min = 0.2;
 
 		Real value = (l_max - l) / (l_max - l_min);
-		blend[pId] = 1;// clamp(value, Real(0), Real(1));
+		blend[pId] = 0;// clamp(value, Real(0), Real(1));
 	}
 
 
@@ -231,40 +216,6 @@ namespace PhysIKA
 		D(1, 1) = D(1, 1) > threshold ? 1.0 / D(1, 1) : 1.0;
 		D(2, 2) = D(2, 2) > threshold ? 1.0 / D(2, 2) : 1.0;
 		F[pId] = matL_i*V*D*U.transpose();
-
-
-// 		if (pId == 0)
-// 		{
-// 			printf("matL_i: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				matL_i(0, 0), matL_i(0, 1), matL_i(0, 2),
-// 				matL_i(1, 0), matL_i(1, 1), matL_i(1, 2),
-// 				matL_i(2, 0), matL_i(2, 1), matL_i(2, 2));
-// 
-// 			printf("matK_i: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				matK_i(0, 0), matK_i(0, 1), matK_i(0, 2),
-// 				matK_i(1, 0), matK_i(1, 1), matK_i(1, 2),
-// 				matK_i(2, 0), matK_i(2, 1), matK_i(2, 2));
-// 
-// 			printf("F: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				F[pId](0, 0), F[pId](0, 1), F[pId](0, 2),
-// 				F[pId](1, 0), F[pId](1, 1), F[pId](1, 2),
-// 				F[pId](2, 0), F[pId](2, 1), F[pId](2, 2));
-// 
-// 			printf("inverseF: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				inverseF[pId](0, 0), inverseF[pId](0, 1), inverseF[pId](0, 2),
-// 				inverseF[pId](1, 0), inverseF[pId](1, 1), inverseF[pId](1, 2),
-// 				inverseF[pId](2, 0), inverseF[pId](2, 1), inverseF[pId](2, 2));
-// 
-// 			printf("inverseL: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				inverseL[pId](0, 0), inverseL[pId](0, 1), inverseL[pId](0, 2),
-// 				inverseL[pId](1, 0), inverseL[pId](1, 1), inverseL[pId](1, 2),
-// 				inverseL[pId](2, 0), inverseL[pId](2, 1), inverseL[pId](2, 2));
-// 
-// 			printf("inverseK: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				inverseK[pId](0, 0), inverseK[pId](0, 1), inverseK[pId](0, 2),
-// 				inverseK[pId](1, 0), inverseK[pId](1, 1), inverseK[pId](1, 2),
-// 				inverseK[pId](2, 0), inverseK[pId](2, 1), inverseK[pId](2, 2));
-// 		}
 	}
 
 	template <typename Real, typename Matrix>
@@ -282,32 +233,9 @@ namespace PhysIKA
 
 		// find strain tensor E = 1/2(F^T * F - I)
 		Matrix E = 0.5*(F_i.transpose() * F_i - Matrix::identityMatrix());
-		// find first Piola-Kirchhoff matix; StVK material
-		stressTensor[pId] = F_i * (2 * lambda * E);// F_i * (2 * mu * E + lambda * E.trace() * Matrix::identityMatrix());
-		//stressTensor[pId] = F_i * (2 * mu * E);
-		//stressTensor[pId] = 2 * mu * F_i;
-		//stressTensor[pId] = F_i * ( lambda * E.trace() * Matrix::identityMatrix());
-//		stressTensor[pId] = Matrix(0);
 
-//  		if (F_i.determinant() < 0.0f)
-//  		{
-// 			printf("F_i: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				F_i(0, 0), F_i(0, 1), F_i(0, 2),
-// 				F_i(1, 0), F_i(1, 1), F_i(1, 2),
-// 				F_i(2, 0), F_i(2, 1), F_i(2, 2));
-//  		}
-// 		if (pId == 0)
-// 		{
-// 			printf("E_i: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				E(0, 0), E(0, 1), E(0, 2),
-// 				E(1, 0), E(1, 1), E(1, 2),
-// 				E(2, 0), E(2, 1), E(2, 2));
-// 
-// 			printf("stressTensor: \n %f %f %f \n %f %f %f \n %f %f %f \n	\n",
-// 				stressTensor[pId](0, 0), stressTensor[pId](0, 1), stressTensor[pId](0, 2),
-// 				stressTensor[pId](1, 0), stressTensor[pId](1, 1), stressTensor[pId](1, 2),
-// 				stressTensor[pId](2, 0), stressTensor[pId](2, 1), stressTensor[pId](2, 2));
-// 		}
+		// find first Piola-Kirchhoff matix; StVK material
+		stressTensor[pId] = F_i * (2 * lambda * E);
 	}
 
 	template <typename Real, typename Coord, typename Matrix, typename NPair>
@@ -457,28 +385,14 @@ namespace PhysIKA
 
 				rest_dir_ij = rest_dir_ij.norm() > EPSILON ? rest_dir_ij.normalize() : Coord(0, 0, 0);
 
-// 				source_i += sw_ij*PK2_ij1*y_pre_j + sw_ij*PK2_ij2*r*rest_dir_ij;
-// 				mat_i += sw_ij*PK2_ij1;
-
 				source_i += sw_ij*PK2_ij1*y_pre_j + sw_ij*PK2_ij2*r*rest_dir_ij;
 				mat_i += sw_ij*PK2_ij1;
 
-				//printf("%f \n", sw_ij* 480000 * 2.0);
 			}
 		}
 
-// 		printf("%d Src: %d \n", pId, size_i);
-//  		printf("%d Src: %f %f %f \n", pId, source_i[0], source_i[1], source_i[2]);
-//   		printf("%d Mat: %f %f %f \n", pId, mat_i(0, 0), mat_i(1, 1), mat_i(2, 2));
-
 		source[pId] += source_i*(1 - fraction[pId]);
 		A[pId] += mat_i*(1 - fraction[pId]);
-
-// 		if (pId == 0)
-// 		{
-// 			printf("%d Linear Src: %f %f %f \n", pId, source_i[0]* (1 - fraction[pId]), source_i[1] * (1 - fraction[pId]), source_i[2] * (1 - fraction[pId]));
-// 			printf("%d Linear Mat: %f %f %f \n", pId, mat_i(0, 0)* (1 - fraction[pId]), mat_i(1, 1)* (1 - fraction[pId]), mat_i(2, 2)* (1 - fraction[pId]));
-// 		}
 
 	}
 
@@ -515,7 +429,6 @@ namespace PhysIKA
 		Matrix U_i = matU[pId];
 		Matrix V_i = matV[pId];
 		Matrix PK1_i = U_i*model->getStressTensorPositive(lambda_i1, lambda_i2, lambda_i3)*U_i.transpose();
-		//Matrix PK2_i = U_i*model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3)*U_i.transpose();
 		Matrix PK2_i = U_i*model->getStressTensorNegative(lambda_i1, lambda_i2, lambda_i3)*V_i.transpose();
 
 		Real Vol_i = volume[pId];
@@ -553,54 +466,11 @@ namespace PhysIKA
 				Matrix U_j = matU[j];
 				Matrix V_j = matV[j];
 				Matrix PK1_j = U_j * model->getStressTensorPositive(lambda_j1, lambda_j2, lambda_j3)*U_j.transpose();
-				//Matrix PK2_j = U_j * model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3)*U_j.transpose();
 				Matrix PK2_j = U_j * model->getStressTensorNegative(lambda_j1, lambda_j2, lambda_j3)*V_j.transpose();
 				Matrix PK1_ij = PK1_i + PK1_j;
 				Matrix PK2_ij = PK2_i + PK2_j;
 				
 				Coord y_pre_ij = (y_pre_i - y_pre_j);
-
-// 				Matrix ratio_ij = PK1_ij2*PK1_ij1.inverse();
-// 				Real r_projected_ij = (ratio_ij*y_pre_ij).norm();
-
-// 				if (pId == y_next.size()-6 && j == y_next.size() - 2)
-// 				{
-// 					printf("Testing Stretch \n");
-// 					printf("%f %f %f \n", y_pre_ij[0], y_pre_ij[1], y_pre_ij[2]);
-// 					Coord x_i = F_i*(y_rest_i - np_j.pos);
-// 					printf("%f %f %f \n", x_i[0], x_i[1], x_i[2]);
-// 					printf("%f %f %f \n %f %f %f \n %f %f %f \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
-// 					Coord x_j = F_j*(y_rest_i - np_j.pos);
-// 					printf("%f %f %f \n", x_j[0], x_j[1], x_j[2]);
-// 					printf("%f %f %f \n %f %f %f \n %f %f %f \n", F_j(0, 0), F_j(0, 1), F_j(0, 2), F_j(1, 0), F_j(1, 1), F_j(1, 2), F_j(2, 0), F_j(2, 1), F_j(2, 2));
-// 				}
-// 				Real l_ij = y_pre_ij.norm() / r;
-// 				l_ij = clamp(l_ij, Real(0.01), Real(100));
-// 				Matrix RefPK_ij1 = model->getStressTensorPositive(l_ij, l_ij, l_ij);
-// 				Matrix RefPK_ij2 = model->getStressTensorNegative(l_ij, l_ij, l_ij);
-// 				Real r_ref_ij = (RefPK_ij2*RefPK_ij1.inverse()*y_pre_ij).norm();
-// 
-// 				l_ij = r_ref_ij / r_projected_ij;
-
-// 				Matrix ratio_ij = PK1_ij2*PK1_ij1.inverse();
-// 				Real r_projected_ij = (ratio_ij*y_pre_ij).norm();
-// 				Real l_ij = r / r_projected_ij;
- 				Real l_ij = 1;// l_ij > 1 ? 1 : l_ij;
-
-				//handling shape inversion
-				/*
-//				Coord y_projected_ij = Matrix::identityMatrix()*(y_rest_i - np_j.pos);
-				Coord y_projected_ij = (F[pId]+F[j])*(y_rest_i - np_j.pos);
-				y_projected_ij = y_projected_ij.normalize();
-				if (y_projected_ij.dot(y_pre_ij) <= 0)
-				{
-//					l_ij *= -1;
-// 					printf("Inverted*************** \n");
- 					y_pre_j = 2 * y_pre_i - y_pre_j;
- 					y_pre_ij = (y_pre_i - y_pre_j);
-//					y_pre_ij = - (y_pre_i - y_pre_j);
-				}
-				*/
 
 				Coord x_ij = y_rest_i - np_j.pos;
 				Coord x_i = F_i*x_ij;
@@ -611,70 +481,18 @@ namespace PhysIKA
 				Coord y_pre_j_i = y_pre_j;
 				Coord y_pre_j_j = y_pre_j;
 
-
-// 				if (x_i.dot(y_pre_ij) < 0)
-// 				{
-// 					y_pre_ij_i = - y_pre_ij;
-// 					y_pre_j_i = 2 * y_pre_i - y_pre_j;
-// 				}
-// 
-// 				if (x_j.dot(y_pre_ij) < 0)
-// 				{
-// 					y_pre_ij_j = - y_pre_ij;
-// 					y_pre_j_j = 2 * y_pre_i - y_pre_j;
-// 				}
-//				source_i -= sw_ij*PK2_i*y_pre_ij_i;
-
- 				//source_i += sw_ij*PK2_i*y_pre_ij_i;
 				source_i += sw_ij*PK2_i*x_ij;
  				source_i += sw_ij*PK1_i*y_pre_j_i;
 
-				//source_i += sw_ij*PK2_j*y_pre_ij_j;
 				source_i += sw_ij*PK2_j*x_ij;
 				source_i += sw_ij*PK1_j*y_pre_j_j;
 
-// 				source_i += sw_ij*PK2_ij*y_pre_ij;
-// 				source_i += sw_ij*PK1_ij*y_pre_j;
 				mat_i += sw_ij*PK1_ij;
-
-				//printf("%f \n", sw_ij* 480000 * 2.0);
 			}
 		}
 
 		source[pId] += source_i*fraction[pId];
 		A[pId] += mat_i*fraction[pId];
-
-// 		if (/*pId == A.size() - 18 || */pId == A.size() - 18)
-// 		{
-// 			Matrix F_i = A[pId];
-// 			Coord eigen_i = source[pId];
-// 			printf("Source %d \n", pId);
-// 			printf("%f %f %f \n %f %f %f \n %f %f %f \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
-// 			printf("%f %f %f \n \n", eigen_i[0], eigen_i[1], eigen_i[2]);
-// 		}
-
-// 		if (pId == 0)
-// 		{
-// 			printf("%d Hyper Src: %f %f %f \n", pId, source_i[0] * (fraction[pId]), source_i[1] * (fraction[pId]), source_i[2] * (fraction[pId]));
-// 			printf("%d Hyper Mat: %f %f %f \n", pId, mat_i(0, 0)* (fraction[pId]), mat_i(1, 1)* (fraction[pId]), mat_i(2, 2)* (fraction[pId]));
-// 		}
-
-// 		if (int0 > 0)
-// 		{
-// 			printf("Interplant %d: %f %f %f %f \n", pId, int0, lambda_i1, lambda_i2, lambda_i3);
-// 		}
-
-//		printf("%f %f %f \n %f %f %f \n %f %f %f \n \n", F_i(0, 0), F_i(0, 1), F_i(0, 2), F_i(1, 0), F_i(1, 1), F_i(1, 2), F_i(2, 0), F_i(2, 1), F_i(2, 2));
-
-// 		Coord rotated = (F_i + F_j)*Vector3f(1, 0, 0);
-// 		printf("Rotated: %f %f %f \n", rotated[0], rotated[1], rotated[2]);
-
-
-//  		printf("%d Src: %f %f %f \n", pId, source_i[0], source_i[1], source_i[2]);
-//   		printf("%d Mat: %f %f %f \n", pId, mat_i(0, 0), mat_i(1, 1), mat_i(2, 2));
-
-// 		printf("%d Old: %f %f %f \n", pId, y_pre_i[0], y_pre_i[1], y_pre_i[2]);
-// 		printf("%d New: %f %f %f \n", pId, y_next[pId][0], y_next[pId][1], y_next[pId][2]);
 
 		delete model;
 	}
@@ -699,6 +517,8 @@ namespace PhysIKA
 			Coord src_i = source[pId] + mass_i*y_old[pId];
 
 			y_next[pId] = mat_i.inverse()*src_i;
+
+			//y_next[pId][0] = (mat_i.inverse()*src_i)[0];
 
 			delete model;
 		}
@@ -918,9 +738,9 @@ namespace PhysIKA
 		rotM(2, 2) = 1.0f;
 		Coord origin = position[0];
 		//position[pId] = origin + rotM*(position[pId] - origin);
-		position[pId][0] += 0.1*(gen.Generate() - 0.5);
-		position[pId][1] += 0.1*(gen.Generate() - 0.5);
-		position[pId][2] += 0.1*(gen.Generate() - 0.5);
+		position[pId][0] += 0.01*(gen.Generate() - 0.5);
+		position[pId][1] += 0.01*(gen.Generate() - 0.5);
+		position[pId][2] += 0.01*(gen.Generate() - 0.5);
 //		position[pId][1] = - position[pId][1] + 0.1;
 //		position[pId][1] += (0.5 - position[pId][1]) + 0.5;
 
@@ -1026,19 +846,19 @@ namespace PhysIKA
 
 		Log::sendMessage(Log::User, "\n \n \n \n *************solver start!!!***************");
 
-		if (ind_num == 0)
-		{
-			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->inPosition()->getValue());
-			ind_num++;
-		}
+// 		if (ind_num == 0)
+// 		{
+// 			HM_RotateInitPos <Coord, Matrix> << <pDims, BLOCK_SIZE >> > (this->inPosition()->getValue());
+// 			ind_num++;
+// 		}
 
 
 		HM_AdjustFixedPos_move << <pDims, BLOCK_SIZE >> > (
 			2,
 			m_points_move_type,
 			m_fixedPos,
-			Coord(-0.005, 0.0, 0.0),
-			0.5);
+			Coord(-0.0001, 0.0, 0.0),
+			0.492);
 
 		HM_EnforceFixedPos << <pDims, BLOCK_SIZE >> > (
 			this->inPosition()->getValue(),
@@ -1125,18 +945,18 @@ namespace PhysIKA
 				m_fixedPos);
 
 			//stepsize adjustment
-// 			Real totalE_current;
-// 			Real totalE_next;
-// 			getEnergy(totalE_current, y_current);
-// 			getEnergy(totalE_next, y_next);
+/*			Real totalE_current;
+			Real totalE_next;
+			getEnergy(totalE_current, y_current);
+			getEnergy(totalE_next, y_next);
 
-// 			printf("Current: %f Next: %f \n", totalE_current, totalE_next);
+			printf("Current: %f Next: %f \n", totalE_current, totalE_next);
 
 			//stepping
-			/*
+			
 			Real alpha = 1.0f;
-
-			while (totalE_next > totalE_current + 1.0)
+			int step = 0;
+			while (totalE_next > totalE_current + 1.0 && step > 10)
 			{
 				step++;
 				alpha *= 0.5;
@@ -1151,8 +971,8 @@ namespace PhysIKA
 					alpha);
 
 				getEnergy(totalE_next, y_next);
-			}
-			*/
+			}*/
+			
 
 			/*
 			int step = 0;

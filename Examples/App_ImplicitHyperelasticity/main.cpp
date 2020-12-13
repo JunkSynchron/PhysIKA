@@ -71,11 +71,15 @@ void CreateScene()
 
 	SceneGraph& scene = SceneGraph::getInstance();
 
+	scene.setGravity(Vector3f(0.0f));
+
 	std::shared_ptr<StaticBoundary<DataType3f>> root = scene.createNewScene<StaticBoundary<DataType3f>>();
 	root->loadCube(Vector3f(0), Vector3f(1), 0.005, true);
 
 	std::shared_ptr<ParticleElasticBody<DataType3f>> child3 = std::make_shared<ParticleElasticBody<DataType3f>>();
 	root->addParticleSystem(child3);
+
+	child3->varHorizon()->setValue(0.01);
 
 	auto ptRender1 = std::make_shared<PointRenderModule>();
 	ptRender1->setColor(Vector3f(0, 1, 1));
@@ -83,7 +87,7 @@ void CreateScene()
 
 	child3->setMass(1.0);
 	Vector3f center(0.0, 0.0, 0.0);
-	Vector3f rectangle(0.06, 0.05, 0.05);
+	Vector3f rectangle(0.01, 0.0025, 0.0025);
 	child3->loadParticles(center- rectangle, center + rectangle, 0.005);
 	
 	child3->translate(Vector3f(0.5, 0.2, 0.5));

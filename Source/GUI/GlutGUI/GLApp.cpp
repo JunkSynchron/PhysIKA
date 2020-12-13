@@ -437,6 +437,10 @@ void GLApp::keyboardFunction(unsigned char key, int x, int y)
         break;
 	case ' ':
 		window->m_bAnimate = !(window->m_bAnimate);
+		break;
+	case 'j':
+		SceneGraph::getInstance().takeOneFrame();
+		break;
     default:
         break;
     }
