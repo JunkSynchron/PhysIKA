@@ -73,19 +73,16 @@ namespace PhysIKA
 	template<typename TDataType>
 	void HyperelastoplasticityBody<TDataType>::advance(Real dt)
 	{
-		auto module = this->template getModule<HyperelastoplasticityModule<TDataType>>("elastoplasticity");
-
 		m_integrator->begin();
 
 		m_integrator->integrate();
 
 		m_nbrQuery->compute();
-		module->solveElasticity();
-		//m_elasticity->solveElasticity();
+		m_fracture->solveElasticity();
 
 		m_nbrQuery->compute();
 
-		module->applyPlasticity();
+		m_fracture->applyPlasticity();
 
 		m_visModule->constrain();
 
