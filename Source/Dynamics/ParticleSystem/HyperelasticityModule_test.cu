@@ -12,7 +12,7 @@
 
 namespace PhysIKA
 {
-#define FIXEDNUM 441
+#define FIXEDNUM 0
 
 	template<typename Real, typename Matrix>
 	__device__ HyperelasticityModel<Real, Matrix>* getElasticityModel(EnergyType type)
@@ -906,7 +906,7 @@ namespace PhysIKA
 			2,
 			m_points_move_type,
 			m_fixedPos,
-			Coord(-0.0075, 0.0, 0.0),
+			Coord(0.0075, 0.0, 0.0),
 			0.53);
 
 		HM_EnforceFixedPos << <pDims, BLOCK_SIZE >> > (

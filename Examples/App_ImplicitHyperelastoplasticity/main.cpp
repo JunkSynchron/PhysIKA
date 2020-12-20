@@ -9,16 +9,18 @@
 
 #include "Framework/Framework/SceneGraph.h"
 #include "Framework/Topology/PointSet.h"
-#include "Framework/Topology/TetrahedronSet.h"
 #include "Framework/Framework/Log.h"
 
-#include "Dynamics/ParticleSystem/ParticleElasticBody.h"
+#include "Dynamics/ParticleSystem/ParticleElastoplasticBody.h"
 #include "Dynamics/ParticleSystem/StaticBoundary.h"
-#include "Dynamics/ParticleSystem/HyperelasticityModule.h"
-#include "Dynamics/ParticleSystem/HyperelasticityModule_test.h"
-#include "Rendering/SurfaceMeshRender.h"
+#include "Dynamics/RigidBody/RigidBody.h"
+#include "Dynamics/ParticleSystem/FractureModule.h"
+#include "Dynamics/ParticleSystem/ElasticityModule.h"
+
 #include "Rendering/PointRenderModule.h"
 
+#include "HyperelastoplasticityBody.h"
+#include "HyperelastoplasticityModule.h"
 
 using namespace std;
 using namespace PhysIKA;
@@ -42,33 +44,28 @@ void RecieveLogMessage(const Log::Message& m)
 void CreateScene()
 {
 	SceneGraph& scene = SceneGraph::getInstance();
-
-	scene.setGravity(Vector3f(0.0f, -9.8f, 0.0f));
+	scene.setLowerBound(Vector3f(0, 0, 0));
+	scene.setUpperBound(Vector3f(1, 0.5, 0.5));
 
 	std::shared_ptr<StaticBoundary<DataType3f>> root = scene.createNewScene<StaticBoundary<DataType3f>>();
-	root->loadCube(Vector3f(0), Vector3f(1), 0.005, true);
+	// 	root->loadSDF("../Media/bar/bar.sdf", false);
+	// 	root->translate(Vector3f(0.2f, 0.2f, 0));
+	root->loadCube(Vector3f(0), Vector3f(1, 0.5, 0.5), 0.005, true);
+	root->loadCube(Vector3f(-0.1, 0, -0.1), Vector3f(0.1, 0.25, 0.6), 0.005, false, true);
 
-	std::shared_ptr<ParticleElasticBody<DataType3f>> child3 = std::make_shared<ParticleElasticBody<DataType3f>>();
+	std::shared_ptr<HyperelastoplasticityBody<DataType3f>> child3 = std::make_shared<HyperelastoplasticityBody<DataType3f>>();
 	root->addParticleSystem(child3);
 
-	child3->varHorizon()->setValue(0.0125);
-
-	auto ptRender1 = std::make_shared<PointRenderModule>();
-	ptRender1->setColor(Vector3f(0, 1, 1));
-	child3->addVisualModule(ptRender1);
+	auto m_pointsRender = std::make_shared<PointRenderModule>();
+	m_pointsRender->setColor(Vector3f(0, 1, 1));
+	child3->addVisualModule(m_pointsRender);
 
 	child3->setMass(1.0);
-	Vector3f center(0.0, 0.0, 0.0);
-	Vector3f rectangle(0.06, 0.05, 0.05);
-	child3->loadParticles(center- rectangle, center + rectangle, 0.005);
-	
-	child3->translate(Vector3f(0.5, 0.2, 0.5));
-	double x_border = 0.5;
-	child3->setVisible(true);
-	auto hyper = std::make_shared<HyperelasticityModule_test<DataType3f>>();
-	//hyper->setEnergyFunction(HyperelasticityModule<DataType3f>::Quadratic);
-	child3->setElasticitySolver(hyper);
-	child3->getElasticitySolver()->setIterationNumber(10);
+	//child3->loadParticles("../Media/bunny/bunny_points.obj");
+	//child3->loadSurface("../Media/bunny/bunny_mesh.obj");
+	child3->loadParticles(Vector3f(0, 0.25, 0.1), Vector3f(0.2f, 0.4, 0.4), 0.005f);
+
+	child3->getMeshNode()->setActive(false);
 }
 
 

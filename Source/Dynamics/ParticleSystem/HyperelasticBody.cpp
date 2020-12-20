@@ -14,7 +14,7 @@ namespace PhysIKA
 
 	template<typename TDataType>
 	HyperelasticBody<TDataType>::HyperelasticBody(std::string name)
-		: Node(name)
+		: ParticleSystem<TDataType>(name)
 	{
 		m_pSet = std::make_shared<UnstructuredPointSet<TDataType>>();
 		this->setTopologyModule(m_pSet);
@@ -22,27 +22,27 @@ namespace PhysIKA
 		this->varHorizon()->setValue(0.0085);
 		//		this->attachField(&m_horizon, "horizon", "horizon");
 
-		auto m_integrator = this->template setNumericalIntegrator<ParticleIntegrator<TDataType>>("integrator");
+		m_integrator = this->template setNumericalIntegrator<ParticleIntegrator<TDataType>>("integrator");
 		this->currentPosition()->connect(m_integrator->inPosition());
 		this->currentVelocity()->connect(m_integrator->inVelocity());
 		this->currentForce()->connect(m_integrator->inForceDensity());
 
 		this->getAnimationPipeline()->push_back(m_integrator);
 
-		auto m_nbrQuery = this->template addComputeModule<NeighborQuery<TDataType>>("neighborhood");
+		m_nbrQuery = this->template addComputeModule<NeighborQuery<TDataType>>("neighborhood");
 		this->varHorizon()->connect(m_nbrQuery->inRadius());
 		this->currentPosition()->connect(m_nbrQuery->inPosition());
 
 		this->getAnimationPipeline()->push_back(m_nbrQuery);
 
 
-		auto m_elasticity = this->template addConstraintModule<HyperelasticityModule_test<TDataType>>("elasticity");
-		this->varHorizon()->connect(m_elasticity->inHorizon());
-		this->currentPosition()->connect(m_elasticity->inPosition());
-		this->currentVelocity()->connect(m_elasticity->inVelocity());
-		m_nbrQuery->outNeighborhood()->connect(m_elasticity->inNeighborhood());
+		m_hyper = this->template addConstraintModule<HyperelasticityModule_test<TDataType>>("elasticity");
+		this->varHorizon()->connect(m_hyper->inHorizon());
+		this->currentPosition()->connect(m_hyper->inPosition());
+		this->currentVelocity()->connect(m_hyper->inVelocity());
+		m_nbrQuery->outNeighborhood()->connect(m_hyper->inNeighborhood());
 
-		this->getAnimationPipeline()->push_back(m_elasticity);
+		this->getAnimationPipeline()->push_back(m_hyper);
 
 		//Create a node for surface mesh rendering
 		m_mesh_node = std::make_shared<TetSystem<TDataType>>("Mesh");
@@ -87,18 +87,14 @@ namespace PhysIKA
 	template<typename TDataType>
 	void HyperelasticBody<TDataType>::advance(Real dt)
 	{
-		auto integrator = this->template getModule<ParticleIntegrator<TDataType>>("integrator");
+		m_integrator->begin();
 
-		auto module = this->template getModule<ElasticityModule<TDataType>>("elasticity");
+		m_integrator->integrate();
 
-		integrator->begin();
+		m_hyper->constrain();
+		
 
-		integrator->integrate();
-
-		if (module != nullptr)
-			module->constrain();
-
-		integrator->end();
+		m_integrator->end();
 	}
 
 	//夏提完成，根据UnstructuredPointSet中m_coords和m_pointNeighbors来更新TetrahedronSet
@@ -183,4 +179,33 @@ namespace PhysIKA
 		m_pSet->setPoints(centroids);
 	}
 
+
+
+	template<typename TDataType>
+	void HyperelasticBody<TDataType>::loadParticles(Coord lo, Coord hi, Real distance)
+	{
+		std::vector<Coord> vertList;
+		std::vector<Coord> normalList;
+
+		for (Real x = lo[0]; x <= hi[0]; x += distance)
+		{
+			for (Real y = lo[1]; y <= hi[1]; y += distance)
+			{
+				for (Real z = lo[2]; z <= hi[2]; z += distance)
+				{
+					Coord p = Coord(x, y, z);
+					vertList.push_back(Coord(x, y, z));
+				}
+			}
+		}
+		normalList.resize(vertList.size());
+
+		m_pSet->setPoints(vertList);
+		m_pSet->setNormals(normalList);
+
+		std::cout << "particle number: " << vertList.size() << std::endl;
+
+		vertList.clear();
+		normalList.clear();
+	}
 }
