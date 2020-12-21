@@ -452,6 +452,16 @@ namespace PhysIKA {
 
 		void solveElasticityGradientDescent();
 
+
+
+		Real x_border = 0.5;
+		Real max_theta = glm::pi<Real>();
+		Real theta = 0.0;
+		Real angular_velocity = 0.03;
+		Coord rotation_center_point;
+
+		bool release_adjust_points_reachTargetPlace = true;
+
 	protected:
 		bool initializeImpl() override;
 

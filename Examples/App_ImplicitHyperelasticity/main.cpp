@@ -63,9 +63,10 @@ void CreateScene()
 	child3->loadParticles(center- rectangle, center + rectangle, 0.005);
 	
 	child3->translate(Vector3f(0.5, 0.2, 0.5));
-	double x_border = 0.5;
 	child3->setVisible(true);
 	auto hyper = std::make_shared<HyperelasticityModule_test<DataType3f>>();
+	hyper->x_border = 0.5;
+	hyper->release_adjust_points_reachTargetPlace = true;
 	//hyper->setEnergyFunction(HyperelasticityModule<DataType3f>::Quadratic);
 	child3->setElasticitySolver(hyper);
 	child3->getElasticitySolver()->setIterationNumber(10);
